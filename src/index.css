@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+
+/* 공통 색·글꼴 등은 디자인이 정해지면 여기 @theme 에 추가하세요 */
+@layer base {
+  body {
+    @apply bg-white text-gray-900 antialiased;
+  }
+}

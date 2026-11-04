@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    // 1. baseUrl 삭제 (또는 주석 처리)
+    // "baseUrl": ".",
+
+    // 2. paths에서 기준 경로를 명시적으로 작성 (예: @/ -> ./src/)
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
