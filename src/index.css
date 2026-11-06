@@ -1,8 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
 @import 'tailwindcss';
 
-/* 공통 색·글꼴 등은 디자인이 정해지면 여기 @theme 에 추가하세요 */
+/* TeachMe 디자인 토큰 (Figma 변수 color/*) */
+@theme {
+  --font-sans: 'Noto Sans KR', system-ui, sans-serif;
+
+  --color-ink: #1e2842;
+  --color-sub: #66708a;
+  --color-muted: #a5adc1;
+  --color-line: #e8ecf3;
+  --color-cool: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-primary: #3f72e0;
+  --color-primary-soft: #edf3fe;
+  --color-secondary: #7c84e8;
+  --color-secondary-soft: #f1f1fd;
+  --color-error: #d9506a;
+  --color-error-soft: #fdeef1;
+  --color-logo-blue: #6396f8;
+  --color-logo-navy: #3b4f84;
+}
+
 @layer base {
   body {
-    @apply bg-white text-gray-900 antialiased;
+    @apply bg-white font-sans text-ink antialiased;
   }
 }
