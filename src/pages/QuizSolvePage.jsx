@@ -1,79 +1,235 @@
 import { useState } from 'react'
 import iconCheck from '@/assets/icons/check-primary-18.svg'
 import iconX from '@/assets/icons/x-error.svg'
+import { USE_MOCK } from '@/api/client'
+import ApiState from '@/components/ApiState'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Chip from '@/components/Chip'
+import { Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
+import { useDday, useQuestionSet, useSubmitAttempt } from '@/hooks/useStudyApi'
 
-const question = {
+// 더미 (목 모드에서 표시)
+const DUMMY = {
+  title: '현재완료에 알맞은 동사 형태',
+  desc: '현재완료 · 난이도 중',
+  ordinal: 3,
+  total: 10,
   prompt: '빈칸에 들어갈 가장 알맞은 표현은?',
   sentence: 'She ___ here since 2021.',
-  choices: ['has worked', 'worked', 'works', 'will work'],
-  answer: 0,
+  type: 'multiple_choice',
+  choices: [
+    { id: 'o1', text: 'has worked' },
+    { id: 'o2', text: 'worked' },
+    { id: 'o3', text: 'works' },
+    { id: 'o4', text: 'will work' },
+  ],
 }
-const marks = ['①', '②', '③', '④']
+const DUMMY_ANSWER = 'o1'
+const DUMMY_EXPLANATION =
+  '2021년부터 지금까지 이어지는 일이에요. 왜 현재완료를 쓰는지 설명해 볼까요?'
+
+const marks = ['①', '②', '③', '④', '⑤', '⑥']
+const LEVEL = { easy: '하', medium: '중', hard: '상' }
+
+// API 문제 → 화면 데이터
+function toQuestion(item, total) {
+  const q = item.question
+  return {
+    title: `${item.ordinal}번 문제`,
+    desc: `${q.question_type === 'multiple_choice' ? '객관식' : '주관식'} · 난이도 ${LEVEL[q.difficulty]}`,
+    ordinal: item.ordinal,
+    total,
+    prompt: '',
+    sentence: q.prompt,
+    type: q.question_type,
+    choices: q.options,
+  }
+}
+
+// 채점 결과(attempt) → { pickedId, correctId, isCorrect, explanation, shortAnswer }
+function toResult(attempt) {
+  if (!attempt?.result) return null
+  const { result, answer } = attempt
+  return {
+    pickedId: answer.selected_option_ids?.[0],
+    correctId: result.correct_answer.selected_option_ids?.[0],
+    correctText: result.correct_answer.text,
+    isCorrect: result.is_correct,
+    explanation: [result.feedback, result.explanation].filter(Boolean).join('\n'),
+  }
+}
 
 // 09 문제 풀이
 export default function QuizSolvePage() {
-  // 보기를 고르면 정답/오답과 해설이 보여요 (시안은 ②를 고른 상태)
-  const [picked, setPicked] = useState(null)
-  const answered = picked !== null
-  const correct = picked === question.answer
+  const dday = useDday()
+  const setQuery = useQuestionSet()
+  const submit = useSubmitAttempt()
+  const [index, setIndex] = useState(null)
+  const [mockPicked, setMockPicked] = useState(null)
+  const [results, setResults] = useState({}) // 이번에 제출한 채점 결과 (questionId → attempt)
+  const [text, setText] = useState('')
 
-  const choiceClass = (i) => {
-    if (answered && i === question.answer) return 'border-[1.5px] border-primary bg-primary-soft font-bold'
-    if (answered && i === picked) return 'border-[1.5px] border-error bg-error-soft font-bold'
-    return 'border border-line bg-white font-medium'
+  const set = setQuery.data
+  const items = set ? [...set.items].sort((a, b) => a.ordinal - b.ordinal) : []
+  // 처음 열면 아직 안 푼 문제부터
+  const firstOpen = Math.max(
+    items.findIndex((it) => !it.latest_attempt),
+    0,
+  )
+  const current = index ?? firstOpen
+  const item = items[current]
+
+  const question = USE_MOCK ? DUMMY : item ? toQuestion(item, items.length) : null
+  const result = USE_MOCK
+    ? mockPicked && {
+        pickedId: mockPicked,
+        correctId: DUMMY_ANSWER,
+        isCorrect: mockPicked === DUMMY_ANSWER,
+        explanation: DUMMY_EXPLANATION,
+      }
+    : item && toResult(results[item.question.id] ?? item.latest_attempt)
+  const attemptId =
+    !USE_MOCK && item ? (results[item.question.id] ?? item.latest_attempt)?.id : null
+
+  const header = { title: '문제 풀이', dday }
+  if (!question) {
+    return (
+      <Screen header={header}>
+        <ApiState
+          query={setQuery}
+          empty="만든 문제가 없어요."
+          action={{ label: '문제 만들기', to: '/quiz' }}
+        />
+      </Screen>
+    )
   }
 
+  const answer = (payload) => {
+    if (USE_MOCK) return setMockPicked(payload.selected_option_ids[0])
+    submit.mutate(
+      { questionId: item.question.id, questionSetId: set.id, answer: payload },
+      {
+        onSuccess: (attempt) => setResults((r) => ({ ...r, [item.question.id]: attempt })),
+        onError: (err) => alert(err.message),
+      },
+    )
+  }
+
+  const answered = !!result
+  const choiceClass = (id) => {
+    if (answered && id === result.correctId)
+      return 'border-[1.5px] border-primary bg-primary-soft font-bold'
+    if (answered && id === result.pickedId)
+      return 'border-[1.5px] border-error bg-error-soft font-bold'
+    return 'border border-line bg-white font-medium'
+  }
+  const pickedIndex = question.choices.findIndex((c) => c.id === result?.pickedId)
+  const correctIndex = question.choices.findIndex((c) => c.id === result?.correctId)
+  const hasNext = !USE_MOCK && current < items.length - 1
+  const teachLink = attemptId ? `/teach/prepare?attempt=${attemptId}` : '/teach/prepare'
+
   return (
-    <Screen header={{ title: '문제 풀이', dday: 'D-5' }} bottom={<Button to="/teach/prepare">이 문제 설명하기</Button>}>
-      <PageTitle title="현재완료에 알맞은 동사 형태" desc="현재완료 · 난이도 중" />
+    <Screen header={header} bottom={<Button to={teachLink}>이 문제 설명하기</Button>}>
+      <PageTitle title={question.title} desc={question.desc} />
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <p className="text-[13px] leading-[1.3] font-bold">3 / 10 문제</p>
+          <p className="text-[13px] leading-[1.3] font-bold">
+            {question.ordinal} / {question.total} 문제
+          </p>
           <Chip tone="cool">내 자료 기반 · 비공개</Chip>
         </div>
         <div className="h-1 overflow-hidden rounded-full bg-cool">
-          <div className="h-full w-[30%] rounded-full bg-primary" />
+          <div
+            className="h-full rounded-full bg-primary"
+            style={{ width: `${(question.ordinal / question.total) * 100}%` }}
+          />
         </div>
       </div>
 
       <Card tone="gradient" className="gap-2 rounded-[18px] p-[18px] leading-[1.4]">
-        <p className="text-[13px] font-medium text-sub">{question.prompt}</p>
-        <p className="text-[21px] font-bold tracking-[-0.21px]">{question.sentence}</p>
+        {question.prompt && <p className="text-[13px] font-medium text-sub">{question.prompt}</p>}
+        <p className="text-[21px] font-bold tracking-[-0.21px] whitespace-pre-line">
+          {question.sentence}
+        </p>
       </Card>
 
-      <ul className="flex flex-col gap-2">
-        {question.choices.map((c, i) => (
-          <li key={c}>
-            <button
-              type="button"
-              onClick={() => !answered && setPicked(i)}
-              className={`flex w-full items-center justify-between rounded-[14px] py-[14px] pr-[14px] pl-4 text-left text-[15px] leading-[1.3] ${choiceClass(i)}`}
-            >
-              <span className="whitespace-pre">{`${marks[i]}  ${c}`}</span>
-              {answered && i === question.answer && <img src={iconCheck} alt="정답" className="size-[18px]" />}
-              {answered && i === picked && !correct && <img src={iconX} alt="오답" className="size-[18px]" />}
-            </button>
-          </li>
-        ))}
-      </ul>
+      {question.type === 'multiple_choice' ? (
+        <ul className="flex flex-col gap-2">
+          {question.choices.map((c, i) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                disabled={answered || submit.isPending}
+                onClick={() => answer({ type: 'multiple_choice', selected_option_ids: [c.id] })}
+                className={`flex w-full items-center justify-between rounded-[14px] py-[14px] pr-[14px] pl-4 text-left text-[15px] leading-[1.3] ${choiceClass(c.id)}`}
+              >
+                <span className="whitespace-pre">{`${marks[i]}  ${c.text}`}</span>
+                {answered && c.id === result.correctId && (
+                  <img src={iconCheck} alt="정답" className="size-[18px]" />
+                )}
+                {answered && c.id === result.pickedId && !result.isCorrect && (
+                  <img src={iconX} alt="오답" className="size-[18px]" />
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <form
+          className="flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (text.trim()) answer({ type: 'short_answer', text: text.trim() })
+          }}
+        >
+          <div className="flex-1">
+            <Input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              disabled={answered}
+              placeholder="답을 입력해 주세요"
+            />
+          </div>
+          <Button type="submit" className="w-auto px-5" disabled={answered || submit.isPending}>
+            제출
+          </Button>
+        </form>
+      )}
+
+      {submit.isPending && <p className="text-center text-xs text-muted">채점하고 있어요…</p>}
 
       {answered && (
         <div className="flex flex-col gap-2 rounded-[14px] bg-cool px-4 py-[14px]">
           <div>
-            <Chip tone={correct ? 'primary' : 'error'}>
-              {correct ? '정답' : `오답 · 선택한 답 ${marks[picked]}`}
+            <Chip tone={result.isCorrect ? 'primary' : 'error'}>
+              {result.isCorrect
+                ? '정답'
+                : pickedIndex >= 0
+                  ? `오답 · 선택한 답 ${marks[pickedIndex]}`
+                  : '오답'}
             </Chip>
           </div>
-          <p className="text-sm leading-[1.6]">
-            정답은 {marks[question.answer]}이에요.
-            <br />
-            2021년부터 지금까지 이어지는 일이에요. 왜 현재완료를 쓰는지 설명해 볼까요?
+          <p className="text-sm leading-[1.6] whitespace-pre-line">
+            정답은{' '}
+            {correctIndex >= 0 ? `${marks[correctIndex]}이에요` : `'${result.correctText}'예요`}.
+            {'\n'}
+            {result.explanation}
           </p>
+          {hasNext && (
+            <button
+              type="button"
+              onClick={() => {
+                setIndex(current + 1)
+                setText('')
+              }}
+              className="self-end text-[13px] leading-[1.4] font-bold text-primary"
+            >
+              다음 문제 →
+            </button>
+          )}
         </div>
       )}
 

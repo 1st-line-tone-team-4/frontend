@@ -9,12 +9,14 @@ import Card from '@/components/Card'
 import Chip from '@/components/Chip'
 import { Field, Input, Select } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
+import { useDday } from '@/hooks/useStudyApi'
 
 // 16 점수 인증 (출시 예정 · 미리보기)
 export default function ScoreVerifyPage() {
+  const dday = useDday()
   return (
     <Screen
-      header={{ title: '점수 인증', dday: 'D-5' }}
+      header={{ title: '점수 인증', dday }}
       bottom={<Button variant="disabled">인증 신청 · 출시 후 이용 가능</Button>}
       className="gap-[18px]"
     >
@@ -49,7 +51,9 @@ export default function ScoreVerifyPage() {
             첨부됨
           </Chip>
         </div>
-        <p className="text-xs leading-[1.4] text-sub">성적과 응시일을 확인할 수 있는 성적표를 올려요.</p>
+        <p className="text-xs leading-[1.4] text-sub">
+          성적과 응시일을 확인할 수 있는 성적표를 올려요.
+        </p>
       </div>
 
       <div className="flex flex-col gap-[6px] rounded-[14px] bg-cool px-4 py-[14px]">
@@ -59,7 +63,9 @@ export default function ScoreVerifyPage() {
             검수 대기 · 예시
           </Chip>
         </div>
-        <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">제출 즉시 인증되지는 않아요</p>
+        <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">
+          제출 즉시 인증되지는 않아요
+        </p>
         <p className="text-[13px] leading-[1.55] text-sub">
           성적표 검수 후 인증 여부를 안내해요.
           <br />

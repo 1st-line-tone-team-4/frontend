@@ -5,14 +5,22 @@ import Button from '@/components/Button'
 import Chip from '@/components/Chip'
 import { Field, Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
+import { useUploadMaterial } from '@/hooks/useStudyApi'
+import { fileBaseName } from '@/utils/format'
+
+// 명세상 업로드 가능한 형식: PDF · 텍스트 · PNG · JPEG
+const ACCEPT = '.pdf,.txt,.png,.jpg,.jpeg'
 
 // 02 자료 업로드
 export default function UploadPage() {
   const navigate = useNavigate()
   const fileRef = useRef(null)
   const [file, setFile] = useState(null)
-  const [examName, setExamName] = useState('')
+  // null 이면 직접 입력 전 → 올린 파일명을 시험 이름으로 사용
+  const [typedName, setTypedName] = useState(null)
+  const examName = typedName ?? fileBaseName(file?.name)
   const [dragging, setDragging] = useState(false)
+  const upload = useUploadMaterial()
 
   const onDrop = (e) => {
     e.preventDefault()
@@ -20,11 +28,21 @@ export default function UploadPage() {
     if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0])
   }
 
+  const onSubmit = () => {
+    if (!file) return fileRef.current?.click()
+    upload.mutate(file, {
+      onSuccess: () => navigate('/upload/exam', { state: { examName } }),
+      onError: (err) => alert(err.message),
+    })
+  }
+
   return (
     <Screen
       header={{ title: '자료 업로드' }}
       bottom={
-        <Button onClick={() => (file ? navigate('/upload/exam') : fileRef.current?.click())}>파일 업로드하기</Button>
+        <Button onClick={onSubmit} disabled={upload.isPending}>
+          {upload.isPending ? '업로드 중이에요…' : '파일 업로드하기'}
+        </Button>
       }
       className="gap-0"
     >
@@ -54,18 +72,22 @@ export default function UploadPage() {
       <input
         ref={fileRef}
         type="file"
-        accept=".pdf,.txt,image/*"
+        accept={ACCEPT}
         className="hidden"
         onChange={(e) => setFile(e.target.files[0] ?? null)}
       />
 
       <Field label="시험 이름" className="mt-6">
-        <Input value={examName} onChange={(e) => setExamName(e.target.value)} />
+        <Input value={examName} onChange={(e) => setTypedName(e.target.value)} />
       </Field>
 
       <div className="mt-[54px] flex flex-col gap-[10px]">
-        <p className="text-[15px] leading-[1.4] font-bold tracking-[-0.15px]">올릴 파일이 없나요?</p>
-        <p className="text-[13px] leading-[1.5] text-sub">파일 없이도 원하는 강의를 검색하고 선택해 시작할 수 있어요.</p>
+        <p className="text-[15px] leading-[1.4] font-bold tracking-[-0.15px]">
+          올릴 파일이 없나요?
+        </p>
+        <p className="text-[13px] leading-[1.5] text-sub">
+          파일 없이도 원하는 강의를 검색하고 선택해 시작할 수 있어요.
+        </p>
         <Button to="/lectures" variant="secondary">
           강의 검색하기
         </Button>
