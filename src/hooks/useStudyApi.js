@@ -263,9 +263,9 @@ export function useTeachbackMessages() {
 export function useSendTeachbackMessage() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ sessionId, content, isFinal }) => {
-      if (isFinal) return Api.submitFinalTeachbackAnswer(sessionId, content)
-      const { job } = await Api.sendTeachbackMessage(sessionId, content)
+    mutationFn: async ({ sessionId, content, isFinal, inputMode = 'text' }) => {
+      if (isFinal) return Api.submitFinalTeachbackAnswer(sessionId, content, inputMode)
+      const { job } = await Api.sendTeachbackMessage(sessionId, content, inputMode)
       return waitForJob(job)
     },
     onSettled: () => {

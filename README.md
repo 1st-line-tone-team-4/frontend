@@ -26,21 +26,6 @@ npm run dev            # http://localhost:5173
 | `VITE_API_BASE_URL` | `http://localhost:8080/v1` | 백엔드 API 주소                         |
 | `VITE_USE_MOCK`     | `true`                     | `true`면 백엔드 없이 가짜 데이터로 개발 |
 
-## 폴더 구조
-
-```
-src/
-├─ api/          axios 인스턴스(client.js) + 기능별 API 함수
-├─ hooks/        커스텀 훅, React Query 훅
-├─ stores/       Zustand 전역 상태
-├─ components/   공통 컴포넌트
-├─ layouts/      공통 레이아웃 (RootLayout)
-├─ pages/        화면
-├─ router.jsx    라우트
-├─ main.jsx      QueryClient · Router 연결
-└─ index.css     Tailwind
-```
-
 - `@/` = `src/` (예: `import useExample from '@/hooks/useExample'`)
 
 ## 새 화면 추가 순서

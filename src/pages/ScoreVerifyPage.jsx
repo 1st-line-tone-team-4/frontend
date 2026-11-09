@@ -17,17 +17,13 @@ export default function ScoreVerifyPage() {
   return (
     <Screen
       header={{ title: '점수 인증', dday }}
-      bottom={<Button variant="disabled">인증 신청 · 출시 후 이용 가능</Button>}
+      bottom={<Button to="/records/verify/result">인증 신청</Button>}
       className="gap-[18px]"
     >
-      <PageTitle title="시험 결과를 인증해요" desc="출시 예정 기능의 신청 화면 예시예요.">
-        <div className="pt-[2px]">
-          <Chip tone="cool">
-            <img src={iconClock} alt="" className="size-[11px]" />
-            출시 예정 · 미리보기
-          </Chip>
-        </div>
-      </PageTitle>
+      <PageTitle
+        title="시험 결과를 인증해요"
+        desc="시험 키워드와 응시일은 시험 정보에서 미리 채웠어요."
+      />
 
       <Field label="시험 키워드" strong>
         <Select options={['토익', '토플', '텝스']} />
@@ -60,17 +56,13 @@ export default function ScoreVerifyPage() {
         <div>
           <Chip tone="white">
             <img src={iconClock} alt="" className="size-[11px]" />
-            검수 대기 · 예시
+            검수 후 인증
           </Chip>
         </div>
         <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">
           제출 즉시 인증되지는 않아요
         </p>
-        <p className="text-[13px] leading-[1.55] text-sub">
-          성적표 검수 후 인증 여부를 안내해요.
-          <br />
-          출시 전에는 실제 신청을 받지 않아요.
-        </p>
+        <p className="text-[13px] leading-[1.55] text-sub">성적표 검수 후 인증 여부를 안내해요.</p>
       </div>
 
       <Card tone="gradient" className="gap-2">

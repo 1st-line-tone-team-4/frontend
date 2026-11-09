@@ -7,6 +7,7 @@ import iconTrash from '@/assets/icons/trash-lg.svg'
 import iconLogout from '@/assets/icons/logout.svg'
 import iconRight from '@/assets/icons/right-muted-16.svg'
 import { Divider } from '@/components/Card'
+import { BellIcon, SlidersIcon, UserIcon } from '@/components/icons'
 import Screen, { PageTitle } from '@/components/Screen'
 import { USE_MOCK } from '@/api/client'
 import { useDday, useMe } from '@/hooks/useStudyApi'
@@ -31,7 +32,11 @@ function MenuList({ items }) {
             className="flex w-full items-center gap-3 py-[13px] text-left"
           >
             <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-cool">
-              <img src={m.icon} alt="" className="size-[17.28px]" />
+              {typeof m.icon === 'string' ? (
+                <img src={m.icon} alt="" className="size-[17.28px]" />
+              ) : (
+                <span className="text-sub">{m.icon}</span>
+              )}
             </span>
             <span className="flex flex-1 flex-col gap-px leading-[1.4]">
               <span className={`text-[15px] font-medium ${m.muted ? 'text-sub' : ''}`}>
@@ -56,6 +61,27 @@ export default function ProfilePage() {
   const me = useMe()
   // 목 모드는 시안의 '지민', 실제 모드는 /me 의 표시 이름
   const name = USE_MOCK ? '지민' : (me.data?.display_name ?? me.data?.email?.split('@')[0] ?? '')
+
+  const settingsMenu = [
+    {
+      icon: <UserIcon size={18} />,
+      title: '계정 설정',
+      desc: '프로필 · 로그인 정보 · 목표 시험',
+      onClick: () => navigate('/settings/account'),
+    },
+    {
+      icon: <BellIcon size={18} />,
+      title: '알림 설정',
+      desc: '학습 · 일정 · 결과 알림',
+      onClick: () => navigate('/settings/notifications'),
+    },
+    {
+      icon: <SlidersIcon size={18} />,
+      title: '앱 설정',
+      desc: '화면 · 음성 · 저장 공간 · 정보',
+      onClick: () => navigate('/settings/app'),
+    },
+  ]
 
   const accountMenu = [
     {
@@ -107,6 +133,8 @@ export default function ProfilePage() {
           <br />이 화면은 실제 결제 상태가 아닌 예시예요.
         </p>
       </div>
+
+      <MenuList items={settingsMenu} />
 
       <MenuList items={subscriptionMenu} />
 

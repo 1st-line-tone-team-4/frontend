@@ -6,6 +6,7 @@ import ApiState from '@/components/ApiState'
 import Button from '@/components/Button'
 import { Divider } from '@/components/Card'
 import Chip from '@/components/Chip'
+import ReportSheet from '@/components/ReportSheet'
 import Screen, { PageTitle } from '@/components/Screen'
 import Source from '@/components/Source'
 import {
@@ -104,9 +105,12 @@ function toView(report) {
   }
 }
 
+const PASS = 80 // 다음 개념으로 넘어가는 설명률 기준 (제안)
+
 // 12 약점 리포트
 export default function ReportPage() {
   const [nextDone, setNextDone] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const dday = useDday()
   const sessionId = useStudyStore((s) => s.sessionId)
   const report = useTeachbackReport()
@@ -142,28 +146,51 @@ export default function ReportPage() {
     )
   }
 
-  const onFeedback = () => {
-    const comment = window.prompt('평가에서 잘못된 점을 알려 주세요')
-    if (comment === null) return
-    if (USE_MOCK) return alert('신고가 접수됐어요.')
-    feedback.mutate(
-      { sessionId, report_item_id: null, reason: 'other', comment: comment.trim() || null },
-      { onSuccess: () => alert('신고가 접수됐어요.'), onError: (err) => alert(err.message) },
-    )
+  const onFeedback = ({ reason, comment }) => {
+    if (USE_MOCK) return Promise.resolve()
+    const REASON = {
+      '판정이 틀림': 'incorrect',
+      '근거가 맞지 않음': 'unsupported',
+      '내 말을 잘못 받아씀': 'unclear',
+    }
+    return feedback.mutateAsync({
+      sessionId,
+      report_item_id: null,
+      reason: REASON[reason] ?? 'other',
+      comment: comment || null,
+    })
   }
 
-  const retryLink = USE_MOCK ? '/teach/prepare' : `/teach/prepare?prev=${sessionId}`
+  const retryLink = USE_MOCK ? '/teach/prepare?retry=1' : `/teach/prepare?retry=1&prev=${sessionId}`
+  const passed = (view.coverage ?? 0) >= PASS
+  const lastConceptOfUnit = true // 목 시나리오: 현재완료가 단원의 마지막 개념
 
   return (
     <Screen
       header={header}
       bottom={
-        <>
-          <Button to={retryLink}>다시 설명하기</Button>
-          <Button to="/quiz" variant="secondary">
-            보충 문제 풀기
-          </Button>
-        </>
+        passed ? (
+          <>
+            <Button to="/unit">다음 개념으로</Button>
+            {lastConceptOfUnit && (
+              <Button to="/quiz/advanced" variant="secondary">
+                심화 문제 풀기
+              </Button>
+            )}
+          </>
+        ) : (
+          <>
+            <Button to="/review">부족한 부분 재학습</Button>
+            <div className="flex w-full gap-2">
+              <Button to={retryLink} variant="secondary" className="flex-1 text-[15px]">
+                다시 설명하기
+              </Button>
+              <Button to="/quiz?from=review" variant="secondary" className="flex-1 text-[15px]">
+                보충 문제 풀기
+              </Button>
+            </div>
+          </>
+        )
       }
       className="gap-5"
     >
@@ -257,10 +284,20 @@ export default function ReportPage() {
 
       <p className="flex items-center justify-center gap-[6px] text-xs leading-[1.3]">
         <span className="text-muted">재설명은 이번 설명과 연결해 비교해요.</span>
-        <button type="button" onClick={onFeedback} className="font-bold text-sub underline">
+        <button
+          type="button"
+          onClick={() => setReportOpen(true)}
+          className="font-bold text-sub underline"
+        >
           평가 신고
         </button>
       </p>
+      <ReportSheet
+        open={reportOpen}
+        kind="evaluation"
+        onClose={() => setReportOpen(false)}
+        onSubmit={onFeedback}
+      />
     </Screen>
   )
 }

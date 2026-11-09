@@ -186,7 +186,7 @@ export default function RecordsPage() {
         <ul>
           {weak.map((w) => (
             <li key={w.id}>
-              <Link to="/study" className="flex items-center gap-[10px] py-3">
+              <Link to="/unit" className="flex items-center gap-[10px] py-3">
                 <img src={iconDot} alt="" className="size-[6px]" />
                 <span className="flex flex-1 flex-col leading-[1.4]">
                   <span className="text-sm font-bold">{w.title}</span>
@@ -206,13 +206,11 @@ export default function RecordsPage() {
         <img src={iconAward} alt="" className="size-5" />
         <span className="flex flex-1 flex-col gap-[2px]">
           <span className="flex items-center gap-[6px]">
-            <span className="text-sm leading-[1.4] font-bold text-sub">점수 인증하기</span>
-            <Chip tone="white" className="text-muted">
-              출시 예정
-            </Chip>
+            <span className="text-sm leading-[1.4] font-bold">점수 인증하기</span>
+            <Chip tone="primary">시험 종료</Chip>
           </span>
-          <span className="text-xs leading-[1.4] text-muted">
-            학습 기록에 시험 결과도 남길 수 있게 준비해요.
+          <span className="text-xs leading-[1.4] text-sub">
+            성적표를 올리면 검수 후 인증 표시가 붙어요.
           </span>
         </span>
       </Link>

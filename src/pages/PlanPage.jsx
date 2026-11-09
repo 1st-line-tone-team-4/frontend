@@ -120,7 +120,7 @@ export default function PlanPage() {
       {/* 오늘 일정 (그라데이션/계획) */}
       {view.today && (
         <Link
-          to="/study"
+          to="/unit"
           className="flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(158deg,#4e68b0_0%,var(--color-logo-navy)_74%)] py-4 pr-[18px] pl-5 text-white"
         >
           <span className="flex items-center justify-between">
@@ -160,22 +160,24 @@ export default function PlanPage() {
           </li>
         ))}
         {view.review && (
-          <li className="flex items-start gap-[14px] py-[10px]">
-            <span className="flex w-11 flex-col leading-[1.3]">
-              <span className="text-sm font-bold">{view.review.date}</span>
-              <span className="text-xs text-sub">{view.review.day}</span>
-            </span>
-            <span className="flex flex-1 flex-col gap-[6px] pt-[34px]">
-              <span className="flex items-center gap-[6px]">
-                <img src={iconRefresh} alt="" className="size-[15px]" />
-                <span className="text-sm leading-[1.4] font-medium tracking-[-0.14px]">
-                  틀린 개념과 설명 다시 보기
+          <li>
+            <Link to="/mock" className="flex items-start gap-[14px] py-[10px]">
+              <span className="flex w-11 flex-col leading-[1.3]">
+                <span className="text-sm font-bold">{view.review.date}</span>
+                <span className="text-xs text-sub">{view.review.day}</span>
+              </span>
+              <span className="flex flex-1 flex-col gap-[6px] pt-[34px]">
+                <span className="flex items-center gap-[6px]">
+                  <img src={iconRefresh} alt="" className="size-[15px]" />
+                  <span className="text-sm leading-[1.4] font-medium tracking-[-0.14px]">
+                    모의고사 · 재설명 · 문제은행
+                  </span>
+                </span>
+                <span className="pt-4">
+                  <Chip tone="secondary">마지막 날 · 실전 점검</Chip>
                 </span>
               </span>
-              <span className="pt-4">
-                <Chip tone="secondary">마지막 날 · 전체 복습</Chip>
-              </span>
-            </span>
+            </Link>
           </li>
         )}
       </ul>

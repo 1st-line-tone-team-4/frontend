@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import iconCheck from '@/assets/icons/check-primary-18.svg'
 import iconX from '@/assets/icons/x-error.svg'
 import { USE_MOCK } from '@/api/client'
@@ -7,28 +8,34 @@ import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Chip from '@/components/Chip'
 import { Input } from '@/components/Field'
+import ReportSheet from '@/components/ReportSheet'
 import Screen, { PageTitle } from '@/components/Screen'
+import SourceChip from '@/components/SourceChip'
+import { QUIZ } from '@/data/flow'
 import { useDday, useQuestionSet, useSubmitAttempt } from '@/hooks/useStudyApi'
 
-// 더미 (목 모드에서 표시)
-const DUMMY = {
-  title: '현재완료에 알맞은 동사 형태',
-  desc: '현재완료 · 난이도 중',
-  ordinal: 3,
-  total: 10,
-  prompt: '빈칸에 들어갈 가장 알맞은 표현은?',
-  sentence: 'She ___ here since 2021.',
-  type: 'multiple_choice',
-  choices: [
-    { id: 'o1', text: 'has worked' },
-    { id: 'o2', text: 'worked' },
-    { id: 'o3', text: 'works' },
-    { id: 'o4', text: 'will work' },
-  ],
+// 더미 (목 모드) · 개념 확인 문제를 n개로 늘려요
+const mockQuestion = (i, n) => {
+  const q = QUIZ[i % QUIZ.length]
+  return {
+    title: q.concept,
+    desc: `${q.concept} · 난이도 ${q.level}`,
+    level: q.level,
+    ordinal: i + 1,
+    total: n,
+    prompt: q.prompt,
+    sentence: q.sentence,
+    type: 'multiple_choice',
+    choices: q.choices.map((text, k) => ({ id: `o${k}`, text })),
+    answerId: `o${q.answer}`,
+    explanation: q.explain,
+    page: q.page,
+    concept: q.concept,
+  }
 }
-const DUMMY_ANSWER = 'o1'
-const DUMMY_EXPLANATION =
-  '2021년부터 지금까지 이어지는 일이에요. 왜 현재완료를 쓰는지 설명해 볼까요?'
+
+// 풀이 종류 라벨 (09 상단)
+const KIND = { check: '개념 확인', supplement: '보충', advanced: '심화', retry: '오답 다시 풀기' }
 
 const marks = ['①', '②', '③', '④', '⑤', '⑥']
 const LEVEL = { easy: '하', medium: '중', hard: '상' }
@@ -61,13 +68,19 @@ function toResult(attempt) {
   }
 }
 
-// 09 문제 풀이
+// 09 개념 확인 풀이
 export default function QuizSolvePage() {
+  const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const kind = KIND[params.get('kind')] ? params.get('kind') : 'check'
+  const mockTotal = Math.min(20, Math.max(5, Number(params.get('n')) || 10))
+  const [mockIndex, setMockIndex] = useState(0)
+  const [mockAnswers, setMockAnswers] = useState({}) // index → 고른 보기 id
+  const [reportOpen, setReportOpen] = useState(false)
   const dday = useDday()
   const setQuery = useQuestionSet()
   const submit = useSubmitAttempt()
   const [index, setIndex] = useState(null)
-  const [mockPicked, setMockPicked] = useState(null)
   const [results, setResults] = useState({}) // 이번에 제출한 채점 결과 (questionId → attempt)
   const [text, setText] = useState('')
 
@@ -81,19 +94,22 @@ export default function QuizSolvePage() {
   const current = index ?? firstOpen
   const item = items[current]
 
-  const question = USE_MOCK ? DUMMY : item ? toQuestion(item, items.length) : null
+  const question = USE_MOCK
+    ? mockQuestion(mockIndex, mockTotal)
+    : item
+      ? toQuestion(item, items.length)
+      : null
+  const mockPicked = mockAnswers[mockIndex]
   const result = USE_MOCK
     ? mockPicked && {
         pickedId: mockPicked,
-        correctId: DUMMY_ANSWER,
-        isCorrect: mockPicked === DUMMY_ANSWER,
-        explanation: DUMMY_EXPLANATION,
+        correctId: question.answerId,
+        isCorrect: mockPicked === question.answerId,
+        explanation: question.explanation,
       }
     : item && toResult(results[item.question.id] ?? item.latest_attempt)
-  const attemptId =
-    !USE_MOCK && item ? (results[item.question.id] ?? item.latest_attempt)?.id : null
 
-  const header = { title: '문제 풀이', dday }
+  const header = { title: `${KIND[kind]} 풀이`, dday }
   if (!question) {
     return (
       <Screen header={header}>
@@ -107,7 +123,8 @@ export default function QuizSolvePage() {
   }
 
   const answer = (payload) => {
-    if (USE_MOCK) return setMockPicked(payload.selected_option_ids[0])
+    if (USE_MOCK)
+      return setMockAnswers((a) => ({ ...a, [mockIndex]: payload.selected_option_ids[0] }))
     submit.mutate(
       { questionId: item.question.id, questionSetId: set.id, answer: payload },
       {
@@ -127,11 +144,36 @@ export default function QuizSolvePage() {
   }
   const pickedIndex = question.choices.findIndex((c) => c.id === result?.pickedId)
   const correctIndex = question.choices.findIndex((c) => c.id === result?.correctId)
-  const hasNext = !USE_MOCK && current < items.length - 1
-  const teachLink = attemptId ? `/teach/prepare?attempt=${attemptId}` : '/teach/prepare'
+  const hasNext = USE_MOCK ? mockIndex < mockTotal - 1 : current < items.length - 1
+
+  // 마지막 문제 뒤에는 A-04 결과로 · 약점은 전체 결과에서 뽑아요
+  const goNext = () => {
+    setText('')
+    if (hasNext) return USE_MOCK ? setMockIndex((i) => i + 1) : setIndex(current + 1)
+    const answers = USE_MOCK
+      ? Array.from({ length: mockTotal }, (_, i) => {
+          const q = mockQuestion(i, mockTotal)
+          return { ...q, pickedId: mockAnswers[i], isCorrect: mockAnswers[i] === q.answerId }
+        })
+      : null
+    navigate(`/quiz/result?kind=${kind}`, { state: { answers } })
+  }
 
   return (
-    <Screen header={header} bottom={<Button to={teachLink}>이 문제 설명하기</Button>}>
+    <Screen
+      header={header}
+      bottom={
+        <Button variant={answered ? 'primary' : 'disabled'} onClick={goNext}>
+          {hasNext ? '다음 문제' : '결과 보기'}
+        </Button>
+      }
+    >
+      <div className="flex items-center gap-[6px]">
+        <Chip tone={kind === 'advanced' ? 'secondary' : 'solid'}>{KIND[kind]}</Chip>
+        {question.level && (
+          <Chip tone={question.level === '상' ? 'error' : 'cool'}>난이도 {question.level}</Chip>
+        )}
+      </div>
       <PageTitle title={question.title} desc={question.desc} />
 
       <div className="flex flex-col gap-2">
@@ -218,27 +260,21 @@ export default function QuizSolvePage() {
             {'\n'}
             {result.explanation}
           </p>
-          {hasNext && (
-            <button
-              type="button"
-              onClick={() => {
-                setIndex(current + 1)
-                setText('')
-              }}
-              className="self-end text-[13px] leading-[1.4] font-bold text-primary"
-            >
-              다음 문제 →
-            </button>
-          )}
+          {question.page && <SourceChip page={question.page} label={`근거 p.${question.page}`} />}
         </div>
       )}
 
       <p className="flex items-center justify-center gap-[6px] text-xs leading-[1.3]">
         <span className="text-muted">문제에 오류가 있나요?</span>
-        <button type="button" className="font-bold text-sub underline">
+        <button
+          type="button"
+          onClick={() => setReportOpen(true)}
+          className="font-bold text-sub underline"
+        >
           문제 신고
         </button>
       </p>
+      <ReportSheet open={reportOpen} kind="question" onClose={() => setReportOpen(false)} />
     </Screen>
   )
 }

@@ -7,6 +7,8 @@ import Button from '@/components/Button'
 import { Divider } from '@/components/Card'
 import Chip from '@/components/Chip'
 import { Field, Segment, Select } from '@/components/Field'
+import { XIcon } from '@/components/icons'
+import { CONCEPTS } from '@/data/flow'
 import Screen, { PageTitle } from '@/components/Screen'
 import Source from '@/components/Source'
 import Toggle from '@/components/Toggle'
@@ -27,8 +29,20 @@ const DUMMY_UNITS = [
   { id: 'u1', title: '시제의 기초', source: '토익 문법 정리.pdf · p.20–23' },
 ]
 
-const DIFFICULTY = { 하: 'easy', 중: 'medium', 상: 'hard' }
-const COUNTS = ['10문제', '5문제', '15문제', '20문제']
+// 난이도는 상 · 중 · 하 혼합 고정 (비율은 제안값)
+const MIX = {
+  basic: [
+    ['하', 30, 'bg-primary/35'],
+    ['중', 40, 'bg-primary/65'],
+    ['상', 30, 'bg-primary'],
+  ],
+  advanced: [
+    ['중', 30, 'bg-secondary/60'],
+    ['상', 70, 'bg-secondary'],
+  ],
+}
+// 백엔드 difficulty 는 단일 값이라, 혼합 출제가 지원되기 전까지 대표 난이도로 보내요
+const API_DIFFICULTY = { basic: 'medium', advanced: 'hard' }
 
 // 확정된 개념이 있는 단원만 → [{ id, title, source, versionIds }]
 function toUnits(material, units = [], concepts = []) {
@@ -48,14 +62,25 @@ function toUnits(material, units = [], concepts = []) {
     .filter((u) => u.versionIds.length > 0)
 }
 
-// 08 문제 만들기
-export default function QuizCreatePage() {
+// A-03 개념 확인 설정 (08 대체) · mode='advanced' 면 A-08 심화 문제
+export default function QuizCreatePage({ mode = 'basic' }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const [scope, setScope] = useState('개념 선택')
-  const [level, setLevel] = useState('중')
-  const [count, setCount] = useState(COUNTS[0])
+  const advanced = mode === 'advanced'
+  const fromReview = params.get('from') === 'review' // A-07 보충 문제: 부족한 항목 개념 · 기본 5문제
+  const scopes = advanced
+    ? ['단원 전체', '여러 단원']
+    : ['오늘 배운 개념', '단원 전체', '직접 선택']
+  const [scope, setScope] = useState(scopes[0])
+  const [count, setCount] = useState(fromReview ? 5 : 10)
   const [unitTitle, setUnitTitle] = useState(null)
+  const [picked, setPicked] = useState(() =>
+    fromReview
+      ? ['since와 for 구분', '과거 시점 부사와의 구분']
+      : CONCEPTS.filter((c) => c.today).map((c) => c.name),
+  )
+  const wholeUnit = scope === '단원 전체' || scope === '여러 단원'
+  const scopeConcepts = wholeUnit ? CONCEPTS.map((c) => c.name) : picked
   const dday = useDday()
 
   const materialId = useStudyStore((s) => s.materialId)
@@ -73,7 +98,9 @@ export default function QuizCreatePage() {
     units.find((u) => u.title === unitTitle) ?? units.find((u) => u.id === taskUnitId) ?? units[0]
 
   const onCreate = () => {
-    if (USE_MOCK) return navigate('/quiz/solve')
+    const kind = advanced ? 'advanced' : fromReview ? 'supplement' : 'check'
+    const solveUrl = `/quiz/solve?kind=${kind}&n=${count}`
+    if (USE_MOCK) return navigate(solveUrl)
     if (!selected) return alert('확정한 개념이 없어요. 개념 확인을 먼저 해 주세요.')
     const useTask = task && selected.id === taskUnitId
     create.mutate(
@@ -81,58 +108,155 @@ export default function QuizCreatePage() {
         unit_id: selected.id,
         task_id: useTask ? task.id : null,
         concept_version_ids: useTask ? task.concept_version_ids : selected.versionIds,
-        count: Number.parseInt(count, 10),
-        difficulty: DIFFICULTY[level],
+        count,
+        difficulty: API_DIFFICULTY[mode],
       },
-      { onSuccess: () => navigate('/quiz/solve'), onError: (err) => alert(err.message) },
+      { onSuccess: () => navigate(solveUrl), onError: (err) => alert(err.message) },
     )
   }
 
   return (
     <Screen
-      header={{ title: '문제 만들기', dday }}
+      header={{ title: advanced ? '심화 문제' : '개념 확인', dday }}
       bottom={
-        <Button onClick={onCreate} disabled={create.isPending}>
-          {create.isPending ? '문제를 만드는 중이에요…' : '문제 만들기'}
+        <Button
+          onClick={onCreate}
+          variant={scopeConcepts.length === 0 ? 'disabled' : 'primary'}
+          disabled={create.isPending}
+        >
+          {create.isPending ? '문제를 만들고 있어요…' : advanced ? '심화 문제 시작' : '문제 만들기'}
         </Button>
       }
-      className="gap-[18px]"
+      className="gap-[22px]"
     >
-      <PageTitle
-        title="읽은 개념을 문제로 확인해요"
-        desc="내 자료와 확정한 개념을 바탕으로 만들어요."
-      />
-
-      <div className="flex flex-col gap-[6px]">
-        <p className="text-[13px] leading-[1.3] font-bold">출제 범위</p>
-        <Segment options={['개념 선택', '자료 전체']} value={scope} onChange={setScope} />
-      </div>
-
-      {scope === '개념 선택' && (
-        <div className="flex flex-col gap-[6px]">
-          <Field label="선택한 개념" strong>
-            <Select
-              options={units.map((u) => u.title)}
-              value={selected?.title ?? ''}
-              onChange={(e) => setUnitTitle(e.target.value)}
-            />
-          </Field>
-          {selected && <Source>{selected.source}</Source>}
-        </div>
+      {advanced ? (
+        <PageTitle
+          eyebrow="단원 3 · 현재완료"
+          title="실력을 넓혀 볼까요?"
+          desc="상 난이도 중심의 응용 · 복합 문제예요."
+        />
+      ) : (
+        <PageTitle
+          title="배운 개념을 문제로 확인해요"
+          desc="내 자료와 확정한 개념을 바탕으로 만들어요."
+        />
       )}
 
-      <div className="flex flex-col gap-[6px]">
-        <p className="text-[13px] leading-[1.3] font-bold">난이도</p>
-        <Segment options={['하', '중', '상']} value={level} onChange={setLevel} />
+      <div className="flex flex-col gap-[10px]">
+        <p className="text-[13px] leading-[1.3] font-bold">출제 범위</p>
+        <Segment options={scopes} value={scope} onChange={setScope} />
+        {USE_MOCK ? (
+          <div className="flex flex-col gap-2">
+            <ul className="flex flex-wrap gap-[6px]">
+              {scopeConcepts.map((name) => (
+                <li
+                  key={name}
+                  className="flex items-center gap-1 rounded-full bg-primary-soft py-[5px] pr-[6px] pl-3 text-[13px] font-bold text-primary"
+                >
+                  {name}
+                  {!wholeUnit && (
+                    <button
+                      type="button"
+                      aria-label={`${name} 빼기`}
+                      onClick={() => setPicked((p) => p.filter((x) => x !== name))}
+                      className="flex size-[18px] items-center justify-center rounded-full hover:bg-primary/10"
+                    >
+                      <XIcon size={12} />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+            {scope === '직접 선택' && (
+              <ul className="flex flex-wrap gap-[6px]">
+                {CONCEPTS.filter((c) => !picked.includes(c.name)).map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => setPicked((p) => [...p, c.name])}
+                      className="rounded-full border border-dashed border-line px-3 py-[5px] text-[13px] font-medium text-sub"
+                    >
+                      + {c.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {scopeConcepts.length === 0 ? (
+              <p className="text-xs text-error">범위에 개념을 1개 이상 넣어 주세요.</p>
+            ) : (
+              <Source>토익 문법 정리.pdf · p.24–25</Source>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-[6px]">
+            <Field label="단원" strong>
+              <Select
+                options={units.map((u) => u.title)}
+                value={selected?.title ?? ''}
+                onChange={(e) => setUnitTitle(e.target.value)}
+              />
+            </Field>
+            {selected && <Source>{selected.source}</Source>}
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-[10px]">
-        <Field label="문제 수" strong>
-          <Select options={COUNTS} value={count} onChange={(e) => setCount(e.target.value)} />
-        </Field>
-        <Field label="시험 키워드" strong>
-          <Select options={['토익', '토플', '텝스']} />
-        </Field>
+      <div className="flex flex-col gap-[10px]">
+        <div className="flex items-center justify-between">
+          <p className="text-[13px] leading-[1.3] font-bold">문제 수</p>
+          <p className="text-xs text-muted">예상 {Math.round(count * 1.2)}분</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            aria-label="한 문제 빼기"
+            disabled={count <= 5}
+            onClick={() => setCount((c) => c - 1)}
+            className="flex size-11 items-center justify-center rounded-xl bg-cool text-xl font-bold disabled:opacity-30"
+          >
+            −
+          </button>
+          <span className="flex-1 text-center text-[26px] leading-[1.2] font-bold tracking-[-0.52px] tabular-nums">
+            {count}문제
+          </span>
+          <button
+            type="button"
+            aria-label="한 문제 더하기"
+            disabled={count >= 20}
+            onClick={() => setCount((c) => c + 1)}
+            className="flex size-11 items-center justify-center rounded-xl bg-cool text-xl font-bold disabled:opacity-30"
+          >
+            +
+          </button>
+        </div>
+        <input
+          type="range"
+          min={5}
+          max={20}
+          value={count}
+          onChange={(e) => setCount(Number(e.target.value))}
+          aria-label="문제 수"
+          className="w-full accent-primary"
+        />
+      </div>
+
+      <div className="flex flex-col gap-[10px]">
+        <p className="text-[13px] leading-[1.3] font-bold">난이도 구성</p>
+        <p className="text-sm text-sub">
+          {advanced ? '상 위주에 중이 일부 섞여 나와요.' : '상 · 중 · 하가 섞여 나와요.'}
+        </p>
+        <div className="flex h-7 overflow-hidden rounded-lg">
+          {MIX[mode].map(([k, v, c]) => (
+            <span
+              key={k}
+              className={`flex items-center justify-center text-[11px] font-bold text-white ${c}`}
+              style={{ width: `${v}%` }}
+            >
+              {k} {v}%
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 rounded-[14px] bg-cool px-4 py-[14px]">

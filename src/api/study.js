@@ -71,14 +71,15 @@ export const getTeachbackSession = (sessionId) =>
   api.get(`/teachback-sessions/${sessionId}`).then(unwrap)
 export const listTeachbackMessages = (sessionId) =>
   api.get(`/teachback-sessions/${sessionId}/messages`, { params: { limit: 100 } }).then(unwrapList)
-export const sendTeachbackMessage = (sessionId, content) =>
+// inputMode: 'text' | 'voice' (음성은 받아쓴 텍스트를 보내요)
+export const sendTeachbackMessage = (sessionId, content, inputMode = 'text') =>
   api
-    .post(`/teachback-sessions/${sessionId}/messages`, { content, input_mode: 'text' })
+    .post(`/teachback-sessions/${sessionId}/messages`, { content, input_mode: inputMode })
     .then(unwrap)
 // AI 질문 3회를 다 받은 뒤 마지막 답변은 이걸로 제출 (AI 추가 질문 없음)
-export const submitFinalTeachbackAnswer = (sessionId, content) =>
+export const submitFinalTeachbackAnswer = (sessionId, content, inputMode = 'text') =>
   api
-    .post(`/teachback-sessions/${sessionId}/final-answer`, { content, input_mode: 'text' })
+    .post(`/teachback-sessions/${sessionId}/final-answer`, { content, input_mode: inputMode })
     .then(unwrap)
 export const completeTeachbackSession = (sessionId) =>
   api.post(`/teachback-sessions/${sessionId}/complete`, {}).then(unwrap)
