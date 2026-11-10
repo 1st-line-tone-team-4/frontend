@@ -1,3 +1,4 @@
+import { LiveLearnView } from '@/components/LiveLearningViews'
 import { useSearchParams } from 'react-router-dom'
 import iconAlert from '@/assets/icons/alert.svg'
 import { USE_MOCK } from '@/api/client'
@@ -80,7 +81,7 @@ function toView(explanation, concept, index, total) {
 }
 
 // 07 학습
-export default function StudyPage() {
+function LegacyStudyPage() {
   const [params] = useSearchParams()
   const today = useToday()
   const dday = useDday()
@@ -183,4 +184,8 @@ export default function StudyPage() {
       )}
     </Screen>
   )
+}
+
+export default function StudyPage() {
+  return USE_MOCK ? <LegacyStudyPage /> : <LiveLearnView />
 }

@@ -1,3 +1,4 @@
+import { LiveQuizSolve } from '@/components/LiveQuizViews'
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import iconCheck from '@/assets/icons/check-primary-18.svg'
@@ -69,7 +70,7 @@ function toResult(attempt) {
 }
 
 // 09 개념 확인 풀이
-export default function QuizSolvePage() {
+function MockQuizSolvePage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const kind = KIND[params.get('kind')] ? params.get('kind') : 'check'
@@ -277,4 +278,8 @@ export default function QuizSolvePage() {
       <ReportSheet open={reportOpen} kind="question" onClose={() => setReportOpen(false)} />
     </Screen>
   )
+}
+
+export default function QuizSolvePage(props) {
+  return USE_MOCK ? <MockQuizSolvePage {...props} /> : <LiveQuizSolve {...props} />
 }

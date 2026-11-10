@@ -1,3 +1,5 @@
+import { LiveQuizResult } from '@/components/LiveQuizViews'
+import { USE_MOCK } from '@/api/client'
 import { useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import Button from '@/components/Button'
@@ -30,7 +32,7 @@ const FALLBACK = Array.from({ length: 10 }, (_, i) => {
 })
 
 // A-04 개념 확인 결과 (A-08 심화 문제 결과도 이 화면)
-export default function QuizResultPage() {
+function MockQuizResultPage() {
   const dday = useDday()
   const { state } = useLocation()
   const [params] = useSearchParams()
@@ -189,4 +191,8 @@ export default function QuizResultPage() {
       <ReportSheet open={reportOpen} kind="question" onClose={() => setReportOpen(false)} />
     </Screen>
   )
+}
+
+export default function QuizResultPage(props) {
+  return USE_MOCK ? <MockQuizResultPage {...props} /> : <LiveQuizResult {...props} />
 }

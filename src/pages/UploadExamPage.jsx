@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import iconUpload from '@/assets/icons/upload-sm.svg'
 import iconFile from '@/assets/icons/file.svg'
@@ -14,6 +14,9 @@ import Screen, { BottomNote, PageTitle } from '@/components/Screen'
 import { useCreateExamGoal, useMaterial, useUploadMaterial } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { fileBaseName, formatBytes, MIME_LABEL } from '@/utils/format'
+import UploadRecovery from '@/components/UploadRecovery'
+import MaterialRecovery from '@/components/MaterialRecovery'
+import JobActionStatus from '@/components/JobActionStatus'
 
 // 더미 (목 모드에서 표시)
 const DUMMY_FILE = { name: '토익 문법 정리.pdf', meta: 'PDF · 32페이지 · 2.4 MB', status: 'ready' }
@@ -123,9 +126,13 @@ export default function UploadExamPage() {
   const dday = formatDday(getDday(examDate))
 
   const materialId = useStudyStore((s) => s.materialId)
-  const material = useMaterial(materialId).data
+  const materialQuery = useMaterial(materialId)
+  const material = materialQuery.data
   const upload = useUploadMaterial()
   const createGoal = useCreateExamGoal()
+  useEffect(() => {
+    if (createGoal.data?.id) navigate('/concepts')
+  }, [createGoal.data?.id, navigate])
 
   // 목 모드는 더미, 실제 모드는 API 자료 정보
   const file = USE_MOCK
@@ -147,18 +154,25 @@ export default function UploadExamPage() {
   const ready = file?.status === 'ready'
 
   const onPickFile = (e) => {
+    if (upload.isPending || (upload.operation && upload.operation.stage !== 'accepted')) return
     const picked = e.target.files[0]
     if (!picked) return
     if (USE_MOCK) return setMockFileName(picked.name)
-    upload.mutate(picked, { onError: (err) => alert(err.message) })
+    upload.mutate(picked, { onError: (err) => !err.canceled && alert(err.message) })
   }
 
   const onSubmit = () => {
+    if (
+      upload.isPending ||
+      createGoal.isPending ||
+      (upload.operation && upload.operation.stage !== 'accepted')
+    )
+      return
     if (!USE_MOCK && !title.trim()) return alert('시험 이름을 입력해 주세요.')
     if (!USE_MOCK && !ready) return alert('자료 분석이 끝나면 다음으로 넘어갈 수 있어요.')
     createGoal.mutate(
       { title: title.trim(), exam_type: guessExamType(title), exam_date: examDate },
-      { onSuccess: () => navigate('/concepts'), onError: (err) => alert(err.message) },
+      { onError: (err) => !err.canceled && alert(err.message) },
     )
   }
 
@@ -172,7 +186,15 @@ export default function UploadExamPage() {
             <br />
             개념 설명과 문제, 평가의 근거로만 사용돼요.
           </BottomNote>
-          <Button onClick={onSubmit} disabled={createGoal.isPending}>
+          <Button
+            onClick={onSubmit}
+            disabled={
+              createGoal.isPending ||
+              upload.isPending ||
+              (!USE_MOCK && !ready) ||
+              (upload.operation && upload.operation.stage !== 'accepted')
+            }
+          >
             시험 선택하고 개념 확인
           </Button>
         </>
@@ -187,6 +209,7 @@ export default function UploadExamPage() {
       <div className="flex flex-col gap-[10px]">
         <button
           type="button"
+          disabled={upload.isPending || (upload.operation && upload.operation.stage !== 'accepted')}
           onClick={() => fileRef.current?.click()}
           className="flex items-center gap-3 rounded-[14px] border-[1.5px] border-dashed border-primary bg-primary-soft px-4 py-[14px] text-left"
         >
@@ -198,7 +221,14 @@ export default function UploadExamPage() {
           </span>
           <Chip tone="white">PDF · 텍스트 · 이미지</Chip>
         </button>
-        <input ref={fileRef} type="file" accept={ACCEPT} className="hidden" onChange={onPickFile} />
+        <input
+          ref={fileRef}
+          type="file"
+          accept={ACCEPT}
+          className="hidden"
+          onChange={onPickFile}
+          disabled={upload.isPending}
+        />
         {file && (
           <div className="flex items-center gap-3 rounded-[14px] border border-line px-4 py-[14px]">
             <span className="flex size-10 items-center justify-center rounded-xl bg-cool">
@@ -279,7 +309,19 @@ export default function UploadExamPage() {
         </>
       )}
 
-      <Button variant="secondary" onClick={() => fileRef.current?.click()}>
+      <UploadRecovery upload={upload} />
+      <JobActionStatus action={createGoal} />
+      {!USE_MOCK && <MaterialRecovery material={material} />}
+      {materialQuery.isError && (
+        <Button variant="secondary" onClick={() => materialQuery.refetch()}>
+          자료 상태 다시 확인
+        </Button>
+      )}
+      <Button
+        variant="secondary"
+        disabled={upload.isPending || (upload.operation && upload.operation.stage !== 'accepted')}
+        onClick={() => fileRef.current?.click()}
+      >
         파일 바꾸기
       </Button>
 
@@ -299,7 +341,7 @@ export default function UploadExamPage() {
                 {ready
                   ? '개념별 근거 페이지까지 연결했어요'
                   : file.status === 'failed'
-                    ? '파일을 바꿔 다시 올려 주세요'
+                    ? '작업 상태를 확인한 뒤 재시도 여부를 선택해 주세요'
                     : '잠시만 기다려 주세요'}
               </p>
             </div>

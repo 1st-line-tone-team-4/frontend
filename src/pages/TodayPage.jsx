@@ -1,3 +1,4 @@
+import { studyUrl } from '@/utils/studyModel'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import iconRightWhite from '@/assets/icons/right-white.svg'
@@ -59,7 +60,7 @@ const DUMMY = {
 }
 
 const TASK_LABEL = { solve: '개념 확인', teach_back: '약점 설명', review: '보완' }
-const TASK_LINK = { solve: '/quiz', teach_back: '/teach/prepare', review: '/report' }
+const TASK_LINK = { solve: '/quiz', teach_back: '/teach/prepare', review: '/review' }
 
 // API(/today + /records/weaknesses) → 화면 데이터
 function toView(today, weaknesses = []) {
@@ -79,6 +80,14 @@ function toView(today, weaknesses = []) {
     unitLabel: `오늘의 단원${concepts[0] ? ` · ${concepts[0].unit_title}` : ''}`,
     unitTitle: concepts.map((c) => c.concept_name).join(' · ') || '오늘 학습',
     unitMeta: `개념 ${concepts.length}개`,
+    unitLink: studyUrl('/unit', {
+      plan: today.study_plan_id,
+      task: tasks.find(
+        (t) => t.task_type === 'solve' && !['completed', 'skipped'].includes(t.status),
+      )?.id,
+      material: concepts[0]?.material_id,
+      unit: concepts[0]?.unit_id,
+    }),
     progress: toPercent(today.progress) ?? 0,
     stats: [
       [`${done}/${tasks.length}`, '오늘 완료'],
@@ -92,8 +101,20 @@ function toView(today, weaknesses = []) {
         t.task_type === 'solve'
           ? `${t.target_count}문제 중 ${t.completed_count}문제 완료`
           : t.title,
-      status: t.status === 'completed' ? 'done' : i === currentIdx ? 'current' : 'waiting',
-      to: `${TASK_LINK[t.task_type]}?task=${t.id}`,
+      status:
+        t.status === 'completed'
+          ? 'done'
+          : t.status === 'skipped'
+            ? 'skipped'
+            : i === currentIdx
+              ? 'current'
+              : 'waiting',
+      to: studyUrl(TASK_LINK[t.task_type] || '/unit', {
+        task: t.id,
+        plan: today.study_plan_id,
+        material: t.concepts[0]?.material_id,
+        unit: t.concepts[0]?.unit_id,
+      }),
     })),
     weakLink:
       topWeak && topWeak.incorrect_attempts > 0
@@ -133,7 +154,7 @@ function StepRow({ step, index }) {
       <span
         className={`text-xs leading-[1.3] font-bold ${step.status === 'waiting' ? 'text-muted' : 'text-primary'}`}
       >
-        {done ? '완료' : current ? '진행 중' : '대기'}
+        {done ? '완료' : step.status === 'skipped' ? '건너뜀' : current ? '진행 중' : '대기'}
       </span>
       {current && <img src={iconRight} alt="" className="size-4" />}
     </Link>
@@ -267,7 +288,7 @@ export default function TodayPage() {
       ) : (
         /* 오늘의 단원 (그라데이션/오늘) */
         <Link
-          to="/unit"
+          to={view.unitLink || '/unit'}
           className="mt-[23px] flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(144deg,var(--color-logo-blue)_0%,var(--color-primary)_74%)] px-5 py-4 text-white"
         >
           <span className="flex items-center justify-between">

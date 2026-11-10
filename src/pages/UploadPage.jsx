@@ -7,6 +7,8 @@ import { Field, Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
 import { useUploadMaterial } from '@/hooks/useStudyApi'
 import { fileBaseName } from '@/utils/format'
+import UploadRecovery from '@/components/UploadRecovery'
+import { validateUploadFile } from '@/utils/uploadOperation'
 
 // 명세상 업로드 가능한 형식: PDF · 텍스트 · PNG · JPEG
 const ACCEPT = '.pdf,.txt,.png,.jpg,.jpeg'
@@ -21,18 +23,28 @@ export default function UploadPage() {
   const examName = typedName ?? fileBaseName(file?.name)
   const [dragging, setDragging] = useState(false)
   const upload = useUploadMaterial()
+  const selectFile = (picked) => {
+    if (upload.isPending || (upload.operation && upload.operation.stage !== 'accepted')) return
+    try {
+      validateUploadFile(picked)
+      setFile(picked)
+    } catch (error) {
+      alert(error.message)
+    }
+  }
 
   const onDrop = (e) => {
     e.preventDefault()
     setDragging(false)
-    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0])
+    if (e.dataTransfer.files[0]) selectFile(e.dataTransfer.files[0])
   }
 
   const onSubmit = () => {
+    if (upload.isPending) return
     if (!file) return fileRef.current?.click()
     upload.mutate(file, {
       onSuccess: () => navigate('/upload/exam', { state: { examName } }),
-      onError: (err) => alert(err.message),
+      onError: (err) => !err.canceled && alert(err.message),
     })
   }
 
@@ -50,6 +62,7 @@ export default function UploadPage() {
 
       <button
         type="button"
+        disabled={upload.isPending || (upload.operation && upload.operation.stage !== 'accepted')}
         onClick={() => fileRef.current?.click()}
         onDragOver={(e) => {
           e.preventDefault()
@@ -74,12 +87,17 @@ export default function UploadPage() {
         type="file"
         accept={ACCEPT}
         className="hidden"
-        onChange={(e) => setFile(e.target.files[0] ?? null)}
+        disabled={upload.isPending}
+        onChange={(e) => e.target.files[0] && selectFile(e.target.files[0])}
       />
 
       <Field label="시험 이름" className="mt-6">
         <Input value={examName} onChange={(e) => setTypedName(e.target.value)} />
       </Field>
+      <UploadRecovery
+        upload={upload}
+        onSuccess={() => navigate('/upload/exam', { state: { examName } })}
+      />
 
       <div className="mt-[54px] flex flex-col gap-[10px]">
         <p className="text-[15px] leading-[1.4] font-bold tracking-[-0.15px]">

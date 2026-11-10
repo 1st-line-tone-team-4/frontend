@@ -64,6 +64,12 @@ export default function ProfilePage() {
 
   const settingsMenu = [
     {
+      icon: <SlidersIcon size={18} />,
+      title: 'AI 연결 설정',
+      desc: '모델 선택 · 이 탭에서 사용할 키',
+      onClick: () => navigate('/login'),
+    },
+    {
       icon: <UserIcon size={18} />,
       title: '계정 설정',
       desc: '프로필 · 로그인 정보 · 목표 시험',
@@ -114,7 +120,11 @@ export default function ProfilePage() {
           <p className="text-[17px] font-bold tracking-[-0.17px]">{name ? `${name}님` : ''}</p>
           <p className="text-[13px] text-sub">차근차근, 내 말로 공부 중</p>
         </div>
-        <button type="button" aria-label="프로필 수정">
+        <button
+          type="button"
+          aria-label="계정 정보 보기"
+          onClick={() => navigate('/settings/account')}
+        >
           <img src={iconPen} alt="" className="size-[18px]" />
         </button>
       </div>
@@ -139,8 +149,9 @@ export default function ProfilePage() {
       <MenuList items={subscriptionMenu} />
 
       <p className="rounded-[14px] bg-cool px-4 py-[14px] text-xs leading-[1.55] text-sub">
-        구독이 끝나도 자료와 기록은 남아요.
-        <br />새 AI 학습·문제 생성·설명 세션은 이용할 수 없어요.
+        구독·결제 기능은 아직 연결되지 않았어요.
+        <br />
+        현재 AI 요청에는 선택한 모델의 개인 API 키가 필요해요.
       </p>
 
       <MenuList items={accountMenu} />

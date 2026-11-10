@@ -1,3 +1,4 @@
+import { LiveQuizCreate } from '@/components/LiveQuizViews'
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import iconLock from '@/assets/icons/lock.svg'
@@ -63,7 +64,7 @@ function toUnits(material, units = [], concepts = []) {
 }
 
 // A-03 개념 확인 설정 (08 대체) · mode='advanced' 면 A-08 심화 문제
-export default function QuizCreatePage({ mode = 'basic' }) {
+function MockQuizCreatePage({ mode = 'basic' }) {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const advanced = mode === 'advanced'
@@ -289,4 +290,8 @@ export default function QuizCreatePage({ mode = 'basic' }) {
       </div>
     </Screen>
   )
+}
+
+export default function QuizCreatePage(props) {
+  return USE_MOCK ? <MockQuizCreatePage {...props} /> : <LiveQuizCreate {...props} />
 }

@@ -1,4 +1,7 @@
+import { improvementChecked } from '@/utils/studyModel'
+import JobActionStatus from '@/components/JobActionStatus'
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import iconAlert from '@/assets/icons/alert-error.svg'
 import iconTarget from '@/assets/icons/target.svg'
 import { USE_MOCK } from '@/api/client'
@@ -11,6 +14,7 @@ import Screen, { PageTitle } from '@/components/Screen'
 import Source from '@/components/Source'
 import {
   useDday,
+  useImprovementActions,
   useReportFeedback,
   useTeachbackReport,
   useUpdateImprovementAction,
@@ -86,6 +90,7 @@ function toView(report) {
           ? `${items[0].description} 외 ${items.length - 1}개`
           : items[0].description,
       source: sourceOf(items[0]),
+      evidence: items[0].evidence?.[0],
       tone: s.tone,
       label: `${s.label} · ${items.length}개`,
     }
@@ -99,21 +104,24 @@ function toView(report) {
     basis: `평가 가능한 확인 항목 ${report.assessable_count}개 기준`,
     formula: `${report.coverage_formula}\n${report.weighted_score} / ${report.assessable_count}점${pct !== null ? ` = ${pct}%` : ''} · 시험 점수가 아니에요`,
     results,
-    error: err && { title: err.description, source: sourceOf(err) },
+    error: err && { title: err.description, source: sourceOf(err), evidence: err.evidence?.[0] },
     nextAction: report.next_action,
     actionId: report.action_id,
   }
 }
 
-const PASS = 80 // 다음 개념으로 넘어가는 설명률 기준 (제안)
-
 // 12 약점 리포트
 export default function ReportPage() {
-  const [nextDone, setNextDone] = useState(false)
+  const [nextDoneOverride, setNextDone] = useState(null)
+  const [params] = useSearchParams()
+  const actions = useImprovementActions()
   const [reportOpen, setReportOpen] = useState(false)
   const dday = useDday()
-  const sessionId = useStudyStore((s) => s.sessionId)
-  const report = useTeachbackReport()
+  const savedSessionId = useStudyStore((s) => s.sessionId)
+  const sessionId = params.get('session') ?? savedSessionId
+  const report = useTeachbackReport(sessionId)
+  const savedAction = actions.data?.find((a) => a.id === report.data?.action_id)
+  const nextDone = improvementChecked(nextDoneOverride, report.data?.action_id, savedAction?.status)
   const updateAction = useUpdateImprovementAction()
   const feedback = useReportFeedback()
 
@@ -133,13 +141,15 @@ export default function ReportPage() {
   }
 
   const onToggleNext = (checked) => {
-    setNextDone(checked)
+    if (updateAction.blocked || updateAction.isPending) return
+    setNextDone({ id: view.actionId, value: checked })
     if (!view.actionId) return
     updateAction.mutate(
       { actionId: view.actionId, status: checked ? 'completed' : 'pending' },
       {
+        onSuccess: () => setNextDone(null),
         onError: (err) => {
-          setNextDone(!checked)
+          setNextDone(null)
           alert(err.message)
         },
       },
@@ -162,39 +172,35 @@ export default function ReportPage() {
   }
 
   const retryLink = USE_MOCK ? '/teach/prepare?retry=1' : `/teach/prepare?retry=1&prev=${sessionId}`
-  const passed = (view.coverage ?? 0) >= PASS
-  const lastConceptOfUnit = true // 목 시나리오: 현재완료가 단원의 마지막 개념
+  const reviewLink = USE_MOCK
+    ? '/review'
+    : `/review?session=${sessionId}${params.get('task') ? `&task=${params.get('task')}` : ''}`
 
   return (
     <Screen
       header={header}
       bottom={
-        passed ? (
-          <>
-            <Button to="/unit">다음 개념으로</Button>
-            {lastConceptOfUnit && (
-              <Button to="/quiz/advanced" variant="secondary">
-                심화 문제 풀기
-              </Button>
-            )}
-          </>
-        ) : (
-          <>
-            <Button to="/review">부족한 부분 재학습</Button>
-            <div className="flex w-full gap-2">
-              <Button to={retryLink} variant="secondary" className="flex-1 text-[15px]">
-                다시 설명하기
-              </Button>
-              <Button to="/quiz?from=review" variant="secondary" className="flex-1 text-[15px]">
-                보충 문제 풀기
-              </Button>
-            </div>
-          </>
-        )
+        <>
+          <Button to={reviewLink}>부족한 부분 재학습</Button>
+          <div className="flex w-full gap-2">
+            <Button to={retryLink} variant="secondary" className="flex-1 text-[15px]">
+              다시 설명하기
+            </Button>
+            <Button to="/unit" variant="secondary" className="flex-1 text-[15px]">
+              개념 목록 보기
+            </Button>
+          </div>
+        </>
       }
       className="gap-5"
     >
       <PageTitle title={view.title} desc={view.desc} />
+      {!USE_MOCK && (
+        <>
+          <JobActionStatus action={updateAction} />
+          <JobActionStatus action={feedback} />
+        </>
+      )}
 
       {/* 설명률 (그라데이션/기록) */}
       <div className="flex flex-col gap-[6px] rounded-[18px] bg-[linear-gradient(145deg,#5f8ff5_0%,var(--color-secondary)_74%)] px-5 py-[18px] text-white">
@@ -231,7 +237,16 @@ export default function ReportPage() {
               <div className="flex items-center gap-[10px] py-3">
                 <div className="flex flex-1 flex-col gap-[2px]">
                   <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">{r.title}</p>
-                  {r.source && <Source>{r.source}</Source>}
+                  {r.source && (
+                    <Source
+                      materialId={r.evidence?.material_id}
+                      page={r.evidence?.page_number}
+                      excerpt={r.evidence?.excerpt}
+                      chunkId={r.evidence?.chunk_id}
+                    >
+                      {r.source}
+                    </Source>
+                  )}
                 </div>
                 <Chip tone={r.tone}>{r.label}</Chip>
               </div>
@@ -256,7 +271,16 @@ export default function ReportPage() {
           {view.error.desc && (
             <p className="text-[13px] leading-[1.55] text-sub">{view.error.desc}</p>
           )}
-          {view.error.source && <Source>{view.error.source}</Source>}
+          {view.error.source && (
+            <Source
+              materialId={view.error.evidence?.material_id}
+              page={view.error.evidence?.page_number}
+              excerpt={view.error.evidence?.excerpt}
+              chunkId={view.error.evidence?.chunk_id}
+            >
+              {view.error.source}
+            </Source>
+          )}
         </div>
       )}
 
@@ -270,6 +294,11 @@ export default function ReportPage() {
             <input
               type="checkbox"
               checked={nextDone}
+              disabled={
+                updateAction.isPending ||
+                updateAction.blocked ||
+                (!USE_MOCK && (actions.isPending || actions.isError))
+              }
               onChange={(e) => onToggleNext(e.target.checked)}
               className="mt-[2px] size-[18px] shrink-0 appearance-none rounded-[5px] border-[1.5px] border-primary bg-white checked:bg-primary"
             />

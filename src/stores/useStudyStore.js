@@ -1,25 +1,24 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { useAuthStore } from './useAuthStore.js'
 
-// 화면 사이에서 이어지는 학습 흐름의 ID (새로고침해도 유지)
-export const useStudyStore = create(
-  persist(
-    (set) => ({
-      materialId: null,
-      examGoalId: null,
-      planId: null,
-      questionSetId: null,
-      sessionId: null,
-      setIds: (ids) => set(ids),
-      reset: () =>
-        set({
-          materialId: null,
-          examGoalId: null,
-          planId: null,
-          questionSetId: null,
-          sessionId: null,
-        }),
-    }),
-    { name: 'study' },
-  ),
-)
+const empty = {
+  materialId: null,
+  examGoalId: null,
+  planId: null,
+  questionSetId: null,
+  sessionId: null,
+}
+// Identity is carried by URLs and server records. Never restore another login's IDs.
+export const useStudyStore = create((set) => ({
+  ...empty,
+  setIds: (ids) => set(ids),
+  reset: () => set(empty),
+}))
+try {
+  globalThis.localStorage?.removeItem('study')
+} catch {
+  /* Storage may be disabled. */
+}
+useAuthStore.subscribe((state, previous) => {
+  if (state.sessionVersion !== previous.sessionVersion) useStudyStore.getState().reset()
+})

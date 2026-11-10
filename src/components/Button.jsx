@@ -7,9 +7,17 @@ const variants = {
   disabled: 'bg-cool text-muted cursor-not-allowed',
 }
 
-export default function Button({ to, variant = 'primary', className = '', children, ...props }) {
-  const cls = `flex h-[52px] w-full items-center justify-center rounded-[14px] text-[17px] leading-[1.3] font-bold tracking-[-0.17px] ${variants[variant]} ${className}`
-  if (to && variant !== 'disabled') {
+export default function Button({
+  to,
+  variant = 'primary',
+  disabled = false,
+  className = '',
+  children,
+  ...props
+}) {
+  const isDisabled = disabled || variant === 'disabled'
+  const cls = `flex h-[52px] w-full items-center justify-center rounded-[14px] text-[17px] leading-[1.3] font-bold tracking-[-0.17px] ${variants[isDisabled ? 'disabled' : variant]} ${className}`
+  if (to && !isDisabled) {
     return (
       <Link to={to} className={cls} {...props}>
         {children}
@@ -17,7 +25,7 @@ export default function Button({ to, variant = 'primary', className = '', childr
     )
   }
   return (
-    <button type="button" className={cls} disabled={variant === 'disabled'} {...props}>
+    <button type="button" className={cls} disabled={isDisabled} {...props}>
       {children}
     </button>
   )

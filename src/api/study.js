@@ -1,96 +1,135 @@
-import axios from 'axios'
-import { api, unwrap, unwrapList } from './client'
+import {
+  api,
+  uploadApi,
+  unwrap,
+  unwrapList,
+  requestOptions,
+  mutationOptions,
+  ApiError,
+  resourceId,
+  captureSession,
+  assertSession,
+} from './client.js'
+import { useAiStore } from '../stores/useAiStore.js'
 
-/* ── 사용자 · 시험 목표 ───────────────────────── */
-export const getMe = () => api.get('/me').then(unwrap)
-export const listExamGoals = (params) => api.get('/exam-goals', { params }).then(unwrapList)
-// body: { title, exam_type: school_exam|toeic|toefl|entrance_exam|other, exam_date: 'YYYY-MM-DD' }
-export const createExamGoal = (body) => api.post('/exam-goals', body).then(unwrap)
-export const updateExamGoal = (goalId, body) =>
-  api.patch(`/exam-goals/${goalId}`, body).then(unwrap)
-
-/* ── 자료 ─────────────────────────────────────── */
-// 1) 업로드 URL 발급 → { material, upload_url, expires_at }
-export const createMaterialUpload = (file) =>
-  api
-    .post('/materials', { filename: file.name, mime_type: file.type, size_bytes: file.size })
+const pathId = resourceId
+const get = (path, params, options, list = false) =>
+  api.get(path, { ...requestOptions(options), params }).then(list ? unwrapList : unwrap)
+const patch = (path, body, options) => api.patch(path, body, requestOptions(options)).then(unwrap)
+export function post(path, body, options = {}, ai = false) {
+  let modelId
+  let config
+  if (ai) {
+    modelId = options.modelId ?? body.model_id ?? useAiStore.getState().modelId
+    if (typeof modelId !== 'string' || !modelId.trim())
+      throw new ApiError('Select an AI model first.', { code: 'MODEL_REQUIRED' })
+    config = mutationOptions(
+      { ...options, providerApiKey: useAiStore.getState().providerApiKey },
+      { requiresProviderKey: true },
+    )
+    body = { ...body, model_id: modelId }
+  } else config = mutationOptions(options)
+  return api
+    .post(path, body, config)
     .then(unwrap)
-// 2) 발급받은 서명 URL 로 파일 직접 업로드 (우리 서버가 아니므로 토큰 없이 axios 기본 인스턴스 사용)
-export const putFileToSignedUrl = (url, file) =>
-  axios.put(url, file, { headers: { 'Content-Type': file.type } })
-// 3) 업로드 완료 알리고 분석 시작 → { job }
-export const completeMaterialUpload = (materialId) =>
-  api.post(`/materials/${materialId}/complete`, {}).then(unwrap)
-
-export const listMaterials = (params) => api.get('/materials', { params }).then(unwrapList)
-export const getMaterial = (materialId) => api.get(`/materials/${materialId}`).then(unwrap)
-export const deleteMaterial = (materialId) => api.delete(`/materials/${materialId}`)
-export const archiveMaterial = (materialId, archived) =>
-  api.patch(`/materials/${materialId}`, { archived }).then(unwrap)
-export const getMaterialSource = (materialId, page = 1) =>
-  api.get(`/materials/${materialId}/source`, { params: { page } }).then(unwrap)
-
-/* ── 단원 · 개념 ──────────────────────────────── */
-export const listUnits = (materialId) => api.get(`/materials/${materialId}/units`).then(unwrap)
-export const listConcepts = (materialId) =>
-  api.get(`/materials/${materialId}/concepts`).then(unwrap)
-// body: { concepts: [{ concept_id, unit_id, base_version_id, name, summary, checklist_items, evidence_chunk_ids }] }
-export const confirmConcepts = (materialId, concepts) =>
-  api.patch(`/materials/${materialId}/concepts`, { concepts }).then(unwrap)
-
-/* ── 계획 · 오늘 ──────────────────────────────── */
-export const createStudyPlan = (body) => api.post('/study-plans', body).then(unwrap)
-export const listStudyPlans = (params) => api.get('/study-plans', { params }).then(unwrapList)
-export const getStudyPlan = (planId) => api.get(`/study-plans/${planId}`).then(unwrap)
-export const rescheduleStudyPlan = (planId) =>
-  api.post(`/study-plans/${planId}/reschedule`, {}).then(unwrap)
-export const getToday = (params) => api.get('/today', { params }).then(unwrap)
-
-/* ── 문제 ─────────────────────────────────────── */
-// body: { unit_id, task_id, concept_version_ids, count, difficulty, acknowledge_possible_duplicate_cost } → { job }
-export const createQuestionSet = (body) => api.post('/question-sets', body).then(unwrap)
-export const getQuestionSet = (setId) => api.get(`/question-sets/${setId}`).then(unwrap)
-// body: { answer: { type: 'multiple_choice', selected_option_ids } | { type: 'short_answer', text }, question_set_id } → { job }
-export const submitAttempt = (questionId, body) =>
-  api.post(`/questions/${questionId}/attempts`, body).then(unwrap)
-export const getAttempt = (attemptId) => api.get(`/attempts/${attemptId}`).then(unwrap)
-
-/* ── 자습 설명 ────────────────────────────────── */
-export const listLearningExplanations = (conceptVersionId) =>
-  api
-    .get('/learning-explanations', { params: { concept_version_id: conceptVersionId } })
-    .then(unwrapList)
-export const createLearningExplanation = (body) =>
-  api.post('/learning-explanations', body).then(unwrap)
-export const getLearningExplanation = (id) => api.get(`/learning-explanations/${id}`).then(unwrap)
-
-/* ── Teach-back ──────────────────────────────── */
-// body: { concept_version_id, task_id, attempt_id, previous_session_id, explanation_language, student_persona }
-export const createTeachbackSession = (body) => api.post('/teachback-sessions', body).then(unwrap)
-export const getTeachbackSession = (sessionId) =>
-  api.get(`/teachback-sessions/${sessionId}`).then(unwrap)
-export const listTeachbackMessages = (sessionId) =>
-  api.get(`/teachback-sessions/${sessionId}/messages`, { params: { limit: 100 } }).then(unwrapList)
-// inputMode: 'text' | 'voice' (음성은 받아쓴 텍스트를 보내요)
-export const sendTeachbackMessage = (sessionId, content, inputMode = 'text') =>
-  api
-    .post(`/teachback-sessions/${sessionId}/messages`, { content, input_mode: inputMode })
-    .then(unwrap)
-// AI 질문 3회를 다 받은 뒤 마지막 답변은 이걸로 제출 (AI 추가 질문 없음)
-export const submitFinalTeachbackAnswer = (sessionId, content, inputMode = 'text') =>
-  api
-    .post(`/teachback-sessions/${sessionId}/final-answer`, { content, input_mode: inputMode })
-    .then(unwrap)
-export const completeTeachbackSession = (sessionId) =>
-  api.post(`/teachback-sessions/${sessionId}/complete`, {}).then(unwrap)
-export const getTeachbackReport = (sessionId) =>
-  api.get(`/teachback-sessions/${sessionId}/report`).then(unwrap)
-// body: { report_item_id, reason: incorrect|unsupported|unclear|other, comment }
-export const reportTeachbackFeedback = (sessionId, body) =>
-  api.post(`/teachback-sessions/${sessionId}/feedback`, body).then(unwrap)
-
-/* ── 기록 ─────────────────────────────────────── */
-export const listWeaknesses = () => api.get('/records/weaknesses').then(unwrapList)
-export const listSessionRecords = () => api.get('/records/sessions').then(unwrapList)
-export const updateImprovementAction = (actionId, body) =>
-  api.patch(`/records/actions/${actionId}`, body).then(unwrap)
+    .then((data) =>
+      data?.job && modelId ? { ...data, job: { ...data.job, model_id: modelId } } : data,
+    )
+}
+export const getMe = (options = {}) => get('/me', undefined, options)
+export const listModels = (options = {}) => get('/ai/models', undefined, options)
+export const validateAiKey = (options = {}) => post('/ai/validate-key', {}, options, true)
+export const listExamGoals = (params, options = {}) => get('/exam-goals', params, options, true)
+export const createExamGoal = (body, options = {}) => post('/exam-goals', body, options)
+export const updateExamGoal = (id, body, options = {}) =>
+  patch(`/exam-goals/${pathId(id)}`, body, options)
+export const createMaterialUpload = (file, options = {}) =>
+  post('/materials', { filename: file.name, mime_type: file.type, size_bytes: file.size }, options)
+export async function putFileToSignedUrl(url, file, options = {}) {
+  const version = captureSession()
+  const parsed = new URL(url, globalThis.location?.origin ?? 'http://localhost')
+  if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password)
+    throw new ApiError('Invalid upload URL.', { code: 'INVALID_REQUEST' })
+  assertSession(version, options.signal)
+  const result = await uploadApi.put(url, file, {
+    signal: options.signal,
+    headers: { 'Content-Type': file.type },
+  })
+  assertSession(version, options.signal)
+  return result
+}
+export const completeMaterialUpload = (id, options = {}) =>
+  post(`/materials/${pathId(id)}/complete`, {}, options, true)
+export const listMaterials = (params, options = {}) => get('/materials', params, options, true)
+export const getMaterial = (id, options = {}) => get(`/materials/${pathId(id)}`, undefined, options)
+export const deleteMaterial = (id, options = {}) =>
+  api.delete(`/materials/${pathId(id)}`, requestOptions(options))
+export const archiveMaterial = (id, archived, options = {}) =>
+  patch(`/materials/${pathId(id)}`, { archived }, options)
+export const getMaterialSource = (id, page = 1, options = {}) =>
+  get(`/materials/${pathId(id)}/source`, { page }, options)
+export const listUnits = (id, options = {}) =>
+  get(`/materials/${pathId(id)}/units`, undefined, options)
+export const listConcepts = (id, options = {}) =>
+  get(`/materials/${pathId(id)}/concepts`, undefined, options)
+export const confirmConcepts = (id, concepts, options = {}) =>
+  patch(`/materials/${pathId(id)}/concepts`, { concepts }, options)
+export const createStudyPlan = (body, options = {}) => post('/study-plans', body, options)
+export const listStudyPlans = (params, options = {}) => get('/study-plans', params, options, true)
+export const getStudyPlan = (id, options = {}) =>
+  get(`/study-plans/${pathId(id)}`, undefined, options)
+export const rescheduleStudyPlan = (id, body = {}, options = {}) =>
+  post(`/study-plans/${pathId(id)}/reschedule`, body, options)
+export const getToday = (params, options = {}) => get('/today', params, options)
+export const createQuestionSet = (body, options = {}) => post('/question-sets', body, options, true)
+export const getQuestionSet = (id, options = {}) =>
+  get(`/question-sets/${pathId(id)}`, undefined, options)
+export const submitAttempt = (id, body, options = {}) =>
+  post(`/questions/${pathId(id)}/attempts`, body, options, true)
+export const getAttempt = (id, options = {}) => get(`/attempts/${pathId(id)}`, undefined, options)
+export const listLearningExplanations = (id, options = {}) =>
+  get('/learning-explanations', { concept_version_id: id }, options, true)
+export const createLearningExplanation = (body, options = {}) =>
+  post('/learning-explanations', body, options, true)
+export const getLearningExplanation = (id, options = {}) =>
+  get(`/learning-explanations/${pathId(id)}`, undefined, options)
+export const createTeachbackSession = (body, options = {}) =>
+  post('/teachback-sessions', body, options)
+export const getTeachbackSession = (id, options = {}) =>
+  get(`/teachback-sessions/${pathId(id)}`, undefined, options)
+export const listTeachbackMessages = (id, options = {}) =>
+  get(`/teachback-sessions/${pathId(id)}/messages`, { limit: 100 }, options, true)
+const mode = (value) => (value === 'voice' ? 'voice_transcript' : value)
+export const sendTeachbackMessage = (id, content, inputMode = 'text', options = {}) =>
+  post(
+    `/teachback-sessions/${pathId(id)}/messages`,
+    { content, input_mode: mode(inputMode) },
+    options,
+    true,
+  )
+export const submitFinalTeachbackAnswer = (id, content, inputMode = 'text', options = {}) =>
+  post(
+    `/teachback-sessions/${pathId(id)}/final-answer`,
+    { content, input_mode: mode(inputMode) },
+    options,
+  )
+export const completeTeachbackSession = (id, options = {}) =>
+  post(`/teachback-sessions/${pathId(id)}/complete`, {}, options, true)
+export const getTeachbackReport = (id, options = {}) =>
+  get(`/teachback-sessions/${pathId(id)}/report`, undefined, options)
+export const reportTeachbackFeedback = (id, body, options = {}) =>
+  post(`/teachback-sessions/${pathId(id)}/feedback`, body, options)
+export const listWeaknesses = (params, options = {}) =>
+  get('/records/weaknesses', params, options, true)
+export const listSessionRecords = (params, options = {}) =>
+  get('/records/sessions', params, options, true)
+export const updateImprovementAction = (id, body, options = {}) =>
+  patch(`/records/actions/${pathId(id)}`, body, options)
+export const updatePlanTask = (id, body, options = {}) =>
+  patch(`/plan-tasks/${pathId(id)}`, body, options)
+export const listImprovementActions = (params, options = {}) =>
+  get('/records/actions', params, options, true)
+export const abandonTeachbackSession = (id, options = {}) =>
+  patch(`/teachback-sessions/${pathId(id)}`, { status: 'abandoned' }, options)
+export const getMaterialChunk = (materialId, chunkId, options = {}) =>
+  get(`/materials/${pathId(materialId)}/chunks/${pathId(chunkId)}`, undefined, options)

@@ -1,3 +1,5 @@
+import { USE_MOCK } from '@/api/client'
+import { LiveUnitView } from '@/components/LiveLearningViews'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Button from '@/components/Button'
@@ -16,7 +18,7 @@ const STATUS_COLOR = {
 }
 
 // A-01 단원 개념 정리 (새 화면)
-export default function UnitPage() {
+function MockUnitPage() {
   const dday = useDday()
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
@@ -132,4 +134,8 @@ export default function UnitPage() {
       </section>
     </Screen>
   )
+}
+
+export default function UnitPage() {
+  return USE_MOCK ? <MockUnitPage /> : <LiveUnitView />
 }
