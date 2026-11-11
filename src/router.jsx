@@ -1,5 +1,8 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import RootLayout from '@/layouts/RootLayout'
+import { USE_MOCK } from '@/api/client'
+import SessionGate from '@/components/SessionGate'
+import UnavailableFeature from '@/components/UnavailableFeature'
 
 // ① 시작하기
 import LandingPage from '@/pages/LandingPage'
@@ -41,6 +44,43 @@ import ExplorePage from '@/pages/ExplorePage'
 import RecordsPage from '@/pages/RecordsPage'
 import ScoreVerifyPage from '@/pages/ScoreVerifyPage'
 import ProfilePage from '@/pages/ProfilePage'
+
+// These designs have no live service contract. Never show demo submission,
+// deletion, verification, or payment success in a live authenticated session.
+const unavailable = {
+  '/lectures': ['강의 찾기', '강의 카탈로그는 준비 중이에요. 가지고 있는 자료를 업로드해 주세요.'],
+  '/lectures/exam': ['강의 학습', '강의 자료 연결은 준비 중이에요.'],
+  '/mock': ['모의고사', '전체 자료 모의고사는 준비 중이에요. 단원별 문제 풀기를 이용해 주세요.'],
+  '/mock/solve': ['모의고사', '실제 모의고사 응시와 결과 저장은 아직 지원하지 않아요.'],
+  '/mock/result': ['모의고사 결과', '아직 저장된 실제 모의고사 결과가 없어요.'],
+  '/bank': ['문제은행', '공개 문제 게시와 응시는 아직 연결되지 않았어요.'],
+  '/bank/solve': ['문제은행', '공개 문제 응시는 아직 연결되지 않았어요.'],
+  '/explore': ['탐색', '공개 자료와 문제 공유는 준비 중이에요.'],
+  '/records/verify': ['성적 인증', '성적 인증 제출과 심사는 아직 연결되지 않았어요.'],
+  '/records/verify/result': ['성적 인증', '실제 제출된 인증 결과를 조회할 수 없는 상태예요.'],
+  '/settings/notifications': ['알림 설정', '서버 알림 발송과 구독 설정은 아직 연결되지 않았어요.'],
+  '/settings/withdraw': [
+    '회원 탈퇴',
+    '현재 앱에서 서버 계정과 자료를 삭제하는 회원 탈퇴 기능은 지원하지 않아요.',
+  ],
+}
+
+function liveRoute(route) {
+  const missing = !USE_MOCK && unavailable[route.path]
+  const element = missing ? (
+    <UnavailableFeature title={missing[0]} description={missing[1]} />
+  ) : (
+    route.element
+  )
+  return {
+    ...route,
+    element: ['/', '/login', '*'].includes(route.path) ? (
+      element
+    ) : (
+      <SessionGate>{element}</SessionGate>
+    ),
+  }
+}
 
 export const router = createBrowserRouter([
   {
@@ -84,6 +124,6 @@ export const router = createBrowserRouter([
       { path: '/settings/app', element: <AppSettingsPage /> }, // A-21
       { path: '/settings/withdraw', element: <WithdrawPage /> }, // A-22
       { path: '*', element: <Navigate to="/" replace /> },
-    ],
+    ].map(liveRoute),
   },
 ])

@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Button from './Button'
 import { BottomSheet, toast } from './Overlay'
+import { isCanceledError } from '@/api/client'
 
 const REASONS = {
   question: ['정답이 틀림', '문제가 이상함', '자료와 다름', '기타'],
@@ -10,24 +11,35 @@ const REASONS = {
 /**
  * A-17 신고 바텀시트 (공통)
  * - kind: 'question'(문제 신고) | 'evaluation'(평가 신고)
- * - onSubmit({ reason, comment }) · 없으면 바로 접수 토스트
+ * - onSubmit({ reason, comment }) · 서버 연결이 없으면 제출하지 않음
  */
 export default function ReportSheet({ open, kind = 'question', onClose, onSubmit }) {
   const [reason, setReason] = useState(null)
   const [comment, setComment] = useState('')
+  const [pending, setPending] = useState(false)
+  const pendingRef = useRef(false)
 
   const close = () => {
+    if (pendingRef.current) return
     setReason(null)
     setComment('')
     onClose()
   }
   const submit = async () => {
+    if (!onSubmit || !reason || pendingRef.current) return
+    pendingRef.current = true
+    setPending(true)
     try {
-      await onSubmit?.({ reason, comment: comment.trim() })
+      await onSubmit({ reason, comment: comment.trim() })
       toast('접수했어요. 검토 후 반영해요.')
+      pendingRef.current = false
       close()
     } catch (err) {
+      if (isCanceledError(err)) return
       toast(err?.message ?? '접수하지 못했어요. 다시 시도해 주세요.')
+    } finally {
+      pendingRef.current = false
+      setPending(false)
     }
   }
 
@@ -37,12 +49,16 @@ export default function ReportSheet({ open, kind = 'question', onClose, onSubmit
       onClose={close}
       title={kind === 'question' ? '문제 신고' : '평가 신고'}
       footer={
-        <Button variant={reason ? 'primary' : 'disabled'} onClick={submit}>
-          신고하기
+        <Button variant={reason && onSubmit && !pending ? 'primary' : 'disabled'} onClick={submit}>
+          {pending ? '접수 중…' : onSubmit ? '신고하기' : '신고 기능 준비 중'}
         </Button>
       }
     >
-      <p className="text-sm leading-[1.5] text-sub">어떤 점이 잘못됐나요?</p>
+      <p className="text-sm leading-[1.5] text-sub">
+        {onSubmit
+          ? '어떤 점이 잘못됐나요?'
+          : '이 항목의 신고 접수는 아직 연결되지 않았어요. 입력 내용은 전송되지 않아요.'}
+      </p>
       <ul className="flex flex-col gap-2" role="radiogroup">
         {REASONS[kind].map((r) => {
           const on = reason === r

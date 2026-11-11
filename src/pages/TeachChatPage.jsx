@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { USE_MOCK } from '@/api/client'
+import { USE_MOCK, isCanceledError } from '@/api/client'
 import ApiState from '@/components/ApiState'
+import JobActionStatus from '@/components/JobActionStatus'
 import Button from '@/components/Button'
 import Chip from '@/components/Chip'
 import {
@@ -69,7 +70,7 @@ function toBubbles(messages = []) {
     .map((m) => {
       if (m.role === 'user') {
         userSeen = true
-        return { id: m.id, from: 'me', text: m.content, voice: m.input_mode === 'voice' }
+        return { id: m.id, from: 'me', text: m.content, voice: m.input_mode === 'voice_transcript' }
       }
       return {
         id: m.id,
@@ -88,14 +89,15 @@ export default function TeachChatPage() {
   const isRetry = params.get('retry') === '1'
   const dday = useDday()
 
-  const sessionId = useStudyStore((s) => s.sessionId)
-  const session = useTeachbackSession()
-  const messagesQuery = useTeachbackMessages()
+  const savedSessionId = useStudyStore((s) => s.sessionId)
+  const sessionId = params.get('session') ?? savedSessionId
+  const session = useTeachbackSession(sessionId)
+  const messagesQuery = useTeachbackMessages(sessionId)
   const send = useSendTeachbackMessage()
   const { ttsEnabled, ttsRate, set: setSettings } = useSettingsStore()
 
   const concept = USE_MOCK ? '현재완료' : (state?.conceptName ?? '')
-  const weak = state?.weak ?? WEAKNESSES.map((w) => w.name)
+  const weak = state?.weak ?? (USE_MOCK ? WEAKNESSES.map((w) => w.name) : [])
 
   // ── 대화 상태 (목 모드는 이 화면에서 직접, 실제 모드는 서버 메시지) ──
   const [mock, setMock] = useState(() => {
@@ -125,7 +127,9 @@ export default function TeachChatPage() {
   const [pinOpen, setPinOpen] = useState(true)
 
   const mockRef = useRef(mock)
-  mockRef.current = mock
+  useEffect(() => {
+    mockRef.current = mock
+  }, [mock])
   const listRef = useRef(null)
   const inputRef = useRef(null)
   const streamRef = useRef(null)
@@ -146,7 +150,11 @@ export default function TeachChatPage() {
   const last = messages[messages.length - 1]
   const status = USE_MOCK ? 'active' : session.data?.status
   const busy = thinking || send.isPending
-  const canType = status === 'active' && !busy
+  const finalSubmitted =
+    !USE_MOCK && (session.data?.question_count ?? 0) >= BACKEND_MAX_QUESTIONS && last?.from === 'me'
+  const waitingReply =
+    !USE_MOCK && !finalSubmitted && last?.from === 'me' && !!session.data?.latest_job_id
+  const canType = status === 'active' && !busy && !finalSubmitted && !send.blocked && !waitingReply
 
   // 경과 시간 · 네트워크 상태
   useEffect(() => {
@@ -165,7 +173,6 @@ export default function TeachChatPage() {
   // 녹음 시간
   useEffect(() => {
     if (!recording) return
-    setRecSec(0)
     const t = setInterval(() => setRecSec((s) => s + 1), 1000)
     return () => clearInterval(t)
   }, [recording])
@@ -211,6 +218,8 @@ export default function TeachChatPage() {
     text,
     { voice = false, audioUrl = null, noReply = false, fromVoiceMode = false } = {},
   ) {
+    if (!USE_MOCK && (!canType || send.isPending))
+      throw new Error('지금은 새 답변을 보낼 수 없어요. 대화 상태를 확인해 주세요.')
     const id = uid()
     if (audioUrl) setAudioById((a) => ({ ...a, [id]: audioUrl }))
 
@@ -240,7 +249,7 @@ export default function TeachChatPage() {
         sessionId,
         content: text,
         isFinal: (session.data?.question_count ?? 0) >= BACKEND_MAX_QUESTIONS,
-        inputMode: voice ? 'voice' : 'text',
+        inputMode: voice ? 'voice_transcript' : 'text',
       })
       const { data } = await messagesQuery.refetch()
       const sorted = [...(data ?? [])].sort((a, b) => a.sequence_no - b.sequence_no)
@@ -265,8 +274,10 @@ export default function TeachChatPage() {
       attach(stream)
       recorder.start(stream)
       dictation.start(draft)
+      setRecSec(0)
       setRecording(true)
     } catch (err) {
+      if (isCanceledError(err)) return
       setMicDenied(err.code === 'DENIED')
       toast(err.message)
     }
@@ -300,6 +311,7 @@ export default function TeachChatPage() {
     try {
       await sendTurn(text, { voice: !!v, audioUrl: v?.url })
     } catch (err) {
+      if (isCanceledError(err)) return
       toast(err.message ?? '보내지 못했어요. 다시 시도해 주세요.')
       setDraft(text)
     }
@@ -347,7 +359,9 @@ export default function TeachChatPage() {
   const finish = () => {
     stopSpeaking()
     sessionStorage.removeItem(STORE_KEY)
-    navigate('/teach/analyzing')
+    navigate(
+      `/teach/analyzing?session=${sessionId ?? ''}${params.get('task') ? `&task=${params.get('task')}` : ''}`,
+    )
   }
 
   const showContinue = USE_MOCK && last?.from === 'student' && last.kind === 'ack' && !busy
@@ -395,7 +409,7 @@ export default function TeachChatPage() {
       )}
 
       {/* 재설명일 때 보완할 점 고정 카드 */}
-      {isRetry && (
+      {isRetry && USE_MOCK && (
         <div className="border-b border-line bg-primary-soft/60 px-5 py-3">
           <button
             type="button"
@@ -421,7 +435,7 @@ export default function TeachChatPage() {
       {/* 대화 */}
       <ul ref={listRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-5">
         <li className="self-center rounded-full bg-cool px-3 py-1 text-[11px] font-medium text-sub">
-          학생은 정답을 먼저 알려주지 않아요 · 질문 수 제한 없음
+          학생은 정답을 먼저 알려주지 않아요 · 최대 3번 질문
         </li>
         {messages.map((m) => {
           if (m.from === 'system') {
@@ -519,6 +533,17 @@ export default function TeachChatPage() {
 
       {/* 입력 영역 */}
       <div className="border-t border-line bg-white px-4 pt-3 pb-[max(20px,env(safe-area-inset-bottom))]">
+        {!USE_MOCK && finalSubmitted && (
+          <p className="mb-2 text-sm text-primary">
+            마지막 답변을 저장했어요. 설명 마치기를 눌러 리포트를 만들어 주세요.
+          </p>
+        )}
+        {!USE_MOCK && <JobActionStatus action={send} />}
+        {waitingReply && !send.job && !busy && (
+          <Button variant="secondary" onClick={() => send.observeJob(session.data.latest_job_id)}>
+            이전 답변 작업 확인하기
+          </Button>
+        )}
         {micDenied && (
           <p className="mb-2 text-xs leading-[1.5] text-sub">
             글로 설명할 수 있어요. 설정에서 마이크를 켜면 말로도 설명할 수 있어요.
@@ -558,7 +583,7 @@ export default function TeachChatPage() {
               ref={inputRef}
               value={draft}
               rows={1}
-              readOnly={recording}
+              readOnly={recording || !canType}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) onSend(e)
@@ -595,6 +620,7 @@ export default function TeachChatPage() {
         <Button
           variant="secondary"
           className="mt-3 h-12 text-[15px]"
+          disabled={!USE_MOCK && (busy || !messages.some((m) => m.from === 'me'))}
           onClick={() => setModal('finish')}
         >
           설명 마치기

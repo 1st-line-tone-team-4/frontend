@@ -1,3 +1,5 @@
+import ApiState from '@/components/ApiState'
+import { studyUrl } from '@/utils/studyModel'
 import { Link } from 'react-router-dom'
 import iconRight from '@/assets/icons/right-primary.svg'
 import iconDot from '@/assets/icons/dot-secondary.svg'
@@ -43,6 +45,7 @@ const SESSION_STATUS = {
 function toWeak(weaknesses) {
   return weaknesses.map((w) => ({
     id: w.concept_id,
+    versionId: w.concept_version_id,
     title: w.concept_name,
     desc: [
       w.latest_coverage !== null && `설명률 ${toPercent(w.latest_coverage)}%`,
@@ -66,8 +69,17 @@ function toRecent(session, weaknesses = []) {
     chip: `${isToday ? '오늘' : `${started.getMonth() + 1}월 ${started.getDate()}일`} · ${SESSION_STATUS[session.status]}`,
     title: name ?? '최근 설명',
     note: done ? '리포트를 확인하고 다시 설명해 보세요.' : null,
-    linkLabel: done ? '약점 리포트 보기' : session.status === 'active' ? '설명 이어가기' : null,
-    to: done ? '/report' : '/teach',
+    linkLabel: done
+      ? '약점 리포트 보기'
+      : session.status === 'active'
+        ? '설명 이어가기'
+        : session.status === 'report_pending'
+          ? '리포트 상태 확인'
+          : null,
+    to: studyUrl(
+      done ? '/report' : session.status === 'report_pending' ? '/teach/analyzing' : '/teach',
+      { session: session.id },
+    ),
   }
 }
 
@@ -82,6 +94,9 @@ export default function RecordsPage() {
 
   return (
     <Screen header="app" tabs className="gap-[18px] pb-5">
+      {!USE_MOCK && (weaknesses.isError || sessions.isError) && (
+        <ApiState query={weaknesses.isError ? weaknesses : sessions} />
+      )}
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl leading-[1.35] font-bold tracking-[-0.72px]">
           설명할수록 선명해지는 실력
@@ -186,7 +201,10 @@ export default function RecordsPage() {
         <ul>
           {weak.map((w) => (
             <li key={w.id}>
-              <Link to="/unit" className="flex items-center gap-[10px] py-3">
+              <Link
+                to={USE_MOCK ? '/unit' : studyUrl('/teach/prepare', { concept: w.versionId })}
+                className="flex items-center gap-[10px] py-3"
+              >
                 <img src={iconDot} alt="" className="size-[6px]" />
                 <span className="flex flex-1 flex-col leading-[1.4]">
                   <span className="text-sm font-bold">{w.title}</span>

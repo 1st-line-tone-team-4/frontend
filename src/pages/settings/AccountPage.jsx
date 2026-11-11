@@ -29,6 +29,29 @@ export default function AccountPage() {
     toast('저장했어요')
   }
 
+  if (!USE_MOCK) {
+    return (
+      <Screen header={{ title: '계정 설정', dday }} className="gap-6">
+        <SettingsSection title="로그인 정보">
+          <SettingsRow title="이름" value={me.data?.display_name || '등록된 이름 없음'} />
+          <SettingsRow title="이메일 주소" value={email || '등록된 이메일 없음'} />
+          <SettingsRow title="로그인 방법" value="외부 인증 제공자" />
+        </SettingsSection>
+        <p className="rounded-xl bg-cool p-4 text-sm text-sub">
+          프로필과 비밀번호 변경은 현재 API에서 지원하지 않아요. 비밀번호는 사용하는 인증 제공자에서
+          관리해 주세요.
+        </p>
+        <Button to="/plan">내 시험 목표와 계획 보기</Button>
+        <Button to="/login" variant="secondary">
+          AI 연결 설정
+        </Button>
+        <Button to="/settings/withdraw" variant="secondary">
+          회원 탈퇴 지원 안내
+        </Button>
+      </Screen>
+    )
+  }
+
   return (
     <Screen header={{ title: '계정 설정', dday }} className="gap-6">
       <div className="flex items-center gap-[14px]">

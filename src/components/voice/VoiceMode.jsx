@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isCanceledError } from '@/api/client'
 import Chip from '@/components/Chip'
 import { CaptionIcon, MicIcon, MicOffIcon, XIcon } from '@/components/icons'
 import {
@@ -83,6 +84,7 @@ export default function VoiceMode({
       try {
         res = await onUserTurn(text, audioUrl, { voice: true })
       } catch (err) {
+        if (isCanceledError(err) || token !== tokenRef.current) return
         flashHint(err?.message ?? '연결이 불안정해요. 다시 말해 주세요.')
       }
       if (token !== tokenRef.current) return
@@ -136,6 +138,7 @@ export default function VoiceMode({
         listen()
       })
       .catch((err) => {
+        if (cancelled || isCanceledError(err)) return
         setError(err.message)
         setPhase('error')
       })

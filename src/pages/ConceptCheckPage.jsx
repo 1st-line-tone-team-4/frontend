@@ -15,6 +15,7 @@ import Source from '@/components/Source'
 import { useConcepts, useConfirmConceptsAndPlan, useMaterial, useUnits } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { pageRange } from '@/utils/format'
+import MaterialRecovery from '@/components/MaterialRecovery'
 
 // 더미 (목 모드에서 표시)
 const DUMMY = {
@@ -154,6 +155,15 @@ function ConceptCheckLive() {
       </Screen>
     )
   }
+  if (material.data?.archived || material.data?.processing_status === 'failed') {
+    return (
+      <Screen header={header}>
+        <p>자료의 보관 상태와 분석 결과를 먼저 확인해 주세요.</p>
+        <MaterialRecovery material={material.data} />
+        <Button to="/materials">내 자료로 이동</Button>
+      </Screen>
+    )
+  }
   const query = concepts.isSuccess ? units : concepts
   if (!units.data || !concepts.data || concepts.data.length === 0) {
     return (
@@ -164,6 +174,7 @@ function ConceptCheckLive() {
   }
   return (
     <ConceptCheckView
+      key={materialId}
       view={toView(material.data, units.data, concepts.data)}
       rawConcepts={concepts.data}
     />
@@ -179,6 +190,7 @@ function ConceptCheckView({ view, rawConcepts }) {
   const confirm = useConfirmConceptsAndPlan()
 
   const onConfirm = () => {
+    if (confirm.isPending) return
     if (USE_MOCK) return navigate('/today')
     if (!examGoalId) return alert('시험 정보를 먼저 입력해 주세요.')
 
@@ -300,10 +312,12 @@ function ConceptCheckView({ view, rawConcepts }) {
 
       <button
         type="button"
+        disabled
+        title="새 개념은 단원과 원본 근거를 선택하는 기능이 준비된 뒤 추가할 수 있어요."
         className="flex items-center justify-center gap-[6px] rounded-[14px] border-[1.5px] border-dashed border-primary py-[14px] text-sm leading-[1.3] font-bold text-primary"
       >
         <img src={iconPlus} alt="" className="size-4" />
-        개념·확인 항목 추가
+        개념·확인 항목 추가 (준비 중)
       </button>
     </Screen>
   )

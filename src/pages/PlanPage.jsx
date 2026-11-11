@@ -1,3 +1,5 @@
+import { studyUrl } from '@/utils/studyModel'
+import JobActionStatus from '@/components/JobActionStatus'
 import { Link } from 'react-router-dom'
 import iconRightWhite from '@/assets/icons/right-white.svg'
 import iconBook from '@/assets/icons/book-sm.svg'
@@ -10,7 +12,7 @@ import { Divider } from '@/components/Card'
 import Chip from '@/components/Chip'
 import Screen from '@/components/Screen'
 import { useDday, useExamGoals, useReschedulePlan, useStudyPlan } from '@/hooks/useStudyApi'
-import { formatKoreanDate, formatMonthDay, toYmd } from '@/utils/format'
+import { formatKoreanDate, formatMonthDay } from '@/utils/format'
 
 // 더미 (목 모드에서 표시)
 const DUMMY = {
@@ -33,7 +35,12 @@ const uniqueConcepts = (tasks) => [
 
 // API(계획 + 시험 목표) → 화면 데이터
 function toView(plan, goal) {
-  const todayYmd = toYmd()
+  const todayYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
   const byDate = new Map()
   for (const t of plan.tasks) {
     if (!byDate.has(t.due_date)) byDate.set(t.due_date, [])
@@ -47,6 +54,16 @@ function toView(plan, goal) {
       const concepts = uniqueConcepts(tasks)
       return {
         ymd: d,
+        link: studyUrl('/unit', {
+          plan: plan.id,
+          task: tasks.find((task) => task.task_type === 'solve' && task.status !== 'completed')?.id,
+          material: concepts[0]?.material_id,
+          unit: concepts[0]?.unit_id,
+        }),
+        reviewLink: studyUrl('/review', {
+          plan: plan.id,
+          task: tasks.find((task) => task.task_type === 'review')?.id,
+        }),
         ...formatMonthDay(d),
         title: concepts.map((c) => c.concept_name).join(' · '),
         count: concepts.length,
@@ -85,6 +102,7 @@ export default function PlanPage() {
           empty="아직 학습 계획이 없어요."
           action={{ label: '자료 올리고 시작하기', to: '/upload' }}
         />
+        {!USE_MOCK && <JobActionStatus action={reschedule} />}
       </Screen>
     )
   }
@@ -120,7 +138,7 @@ export default function PlanPage() {
       {/* 오늘 일정 (그라데이션/계획) */}
       {view.today && (
         <Link
-          to="/unit"
+          to={view.today.link || '/unit'}
           className="flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(158deg,#4e68b0_0%,var(--color-logo-navy)_74%)] py-4 pr-[18px] pl-5 text-white"
         >
           <span className="flex items-center justify-between">
@@ -161,7 +179,10 @@ export default function PlanPage() {
         ))}
         {view.review && (
           <li>
-            <Link to="/mock" className="flex items-start gap-[14px] py-[10px]">
+            <Link
+              to={USE_MOCK ? '/mock' : view.review.reviewLink}
+              className="flex items-start gap-[14px] py-[10px]"
+            >
               <span className="flex w-11 flex-col leading-[1.3]">
                 <span className="text-sm font-bold">{view.review.date}</span>
                 <span className="text-xs text-sub">{view.review.day}</span>
@@ -197,10 +218,11 @@ export default function PlanPage() {
       {USE_MOCK ? (
         <Button to="/lectures/exam">코스 다시 맞추기</Button>
       ) : (
-        <Button onClick={onReschedule} disabled={reschedule.isPending}>
+        <Button onClick={onReschedule} disabled={reschedule.isPending || reschedule.blocked}>
           {reschedule.isPending ? '코스를 다시 맞추는 중이에요…' : '코스 다시 맞추기'}
         </Button>
       )}
+      {!USE_MOCK && <JobActionStatus action={reschedule} />}
     </Screen>
   )
 }

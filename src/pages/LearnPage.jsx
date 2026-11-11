@@ -1,3 +1,5 @@
+import { USE_MOCK } from '@/api/client'
+import { LiveLearnView } from '@/components/LiveLearningViews'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import Button from '@/components/Button'
@@ -11,7 +13,7 @@ import { useDday } from '@/hooks/useStudyApi'
 const SNAP = [22, 40, 62] // 자료 뷰어 높이(%) · 시트를 끌면 이 위치로 붙어요
 
 // A-02 개념 설명 · 자료 나란히 보기 (07 대체)
-export default function LearnPage() {
+function MockLearnPage() {
   const navigate = useNavigate()
   const dday = useDday()
   const [params] = useSearchParams()
@@ -203,4 +205,8 @@ function Block({ n, title, children }) {
       {children}
     </section>
   )
+}
+
+export default function LearnPage() {
+  return USE_MOCK ? <MockLearnPage /> : <LiveLearnView />
 }

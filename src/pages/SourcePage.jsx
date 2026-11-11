@@ -3,6 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeftIcon, ChevronRightIcon, XIcon } from '@/components/icons'
 import SourceViewer from '@/components/SourceViewer'
 import { FILE, SOURCE_PAGES } from '@/data/flow'
+import { USE_MOCK } from '@/api/client'
+import { useMaterial } from '@/hooks/useMaterialApi'
+import { useQuery } from '@tanstack/react-query'
+import { getMaterialChunk } from '@/api/study'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 const ZOOMS = [1, 1.25, 1.5]
 
@@ -11,11 +16,25 @@ export default function SourcePage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   const plain = params.get('plain') === '1'
-  const file = params.get('file') ?? FILE
+  const materialId = params.get('materialId') || params.get('material')
+  const chunkId = params.get('chunkId')
+  const session = useAuthStore((s) => s.sessionVersion)
+  const chunk = useQuery({
+    queryKey: ['material-chunk', materialId, chunkId, session],
+    queryFn: ({ signal }) => getMaterialChunk(materialId, chunkId, { signal }),
+    enabled: !USE_MOCK && !!materialId && !!chunkId,
+  })
+  const material = useMaterial(materialId)
+  const file = USE_MOCK
+    ? (params.get('file') ?? FILE)
+    : (material.data?.filename ?? '업로드한 자료')
   const pages = Object.keys(SOURCE_PAGES).map(Number)
-  const [page, setPage] = useState(Number(params.get('page')) || (plain ? 1 : pages[0]))
+  const [page, setPage] = useState(
+    Math.max(1, Number(params.get('page')) || (USE_MOCK && !plain ? pages[0] : 1)),
+  )
+  const maxPage = USE_MOCK ? 32 : (material.data?.page_count ?? 1)
   const [zoom, setZoom] = useState(0)
-  const marks = SOURCE_PAGES[page]?.highlights ?? []
+  const marks = USE_MOCK ? (SOURCE_PAGES[page]?.highlights ?? []) : []
   const [markIdx, setMarkIdx] = useState(0)
 
   return (
@@ -39,6 +58,8 @@ export default function SourcePage() {
 
       <main className="flex-1 overflow-auto px-5 py-5">
         <SourceViewer
+          materialId={materialId}
+          excerpt={!USE_MOCK && chunk.data?.page_number === page ? chunk.data.excerpt : undefined}
           page={page}
           plain={plain}
           highlight={!plain && marks.length > 1 ? marks[markIdx] : undefined}
@@ -47,7 +68,7 @@ export default function SourcePage() {
       </main>
 
       <footer className="flex flex-col gap-3 bg-white px-5 pt-3 pb-[max(20px,env(safe-area-inset-bottom))]">
-        {!plain && (
+        {!plain && USE_MOCK && (
           <div className="flex items-center justify-between">
             <p className="rounded-full bg-[#fff3b0] px-3 py-1 text-xs font-bold text-ink">
               이 페이지가 근거예요
@@ -75,6 +96,7 @@ export default function SourcePage() {
             <button
               type="button"
               aria-label="이전 쪽"
+              disabled={page <= 1}
               onClick={() => {
                 setPage((p) => Math.max(1, p - 1))
                 setMarkIdx(0)
@@ -87,8 +109,9 @@ export default function SourcePage() {
             <button
               type="button"
               aria-label="다음 쪽"
+              disabled={page >= maxPage}
               onClick={() => {
-                setPage((p) => Math.min(32, p + 1))
+                setPage((p) => Math.min(maxPage, p + 1))
                 setMarkIdx(0)
               }}
               className="flex size-10 items-center justify-center rounded-full bg-cool"

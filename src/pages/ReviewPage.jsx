@@ -1,3 +1,5 @@
+import { USE_MOCK } from '@/api/client'
+import { LiveReviewView } from '@/components/LiveLearningViews'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import Button from '@/components/Button'
@@ -10,7 +12,7 @@ import { REVIEW_ITEMS } from '@/data/flow'
 import { useDday } from '@/hooks/useStudyApi'
 
 // A-07 부족한 부분 재학습 · 오류 → 누락 → 부분 순서
-export default function ReviewPage() {
+function MockReviewPage() {
   const dday = useDday()
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState({})
@@ -147,4 +149,8 @@ export default function ReviewPage() {
       </section>
     </Screen>
   )
+}
+
+export default function ReviewPage() {
+  return USE_MOCK ? <MockReviewPage /> : <LiveReviewView />
 }

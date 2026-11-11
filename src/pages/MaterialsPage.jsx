@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import iconFile from '@/assets/icons/file-lg.svg'
 import iconCheck from '@/assets/icons/check-primary.svg'
 import iconCheck14 from '@/assets/icons/check-primary-14b.svg'
 import iconRight from '@/assets/icons/right-primary.svg'
 import iconLock from '@/assets/icons/lock-sm.svg'
 import { USE_MOCK } from '@/api/client'
-import { getMaterialSource } from '@/api/study'
 import ApiState from '@/components/ApiState'
 import Button from '@/components/Button'
 import Card from '@/components/Card'
@@ -20,10 +19,12 @@ import {
   useDeleteMaterial,
   useExamGoals,
   useMaterials,
+  useMaterial,
   useUnits,
 } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { formatBytes, pageRange } from '@/utils/format'
+import MaterialRecovery from '@/components/MaterialRecovery'
 
 // 더미 (목 모드에서 표시)
 const DUMMY = {
@@ -107,13 +108,16 @@ function toView(material, materialCount, goal, units = [], concepts = []) {
 
 // 13 내 자료
 export default function MaterialsPage() {
+  const navigate = useNavigate()
   const dday = useDday()
   const { materialId, examGoalId, setIds } = useStudyStore()
-  const materials = useMaterials()
+  const materials = useMaterials({ include_archived: true })
   const goals = useExamGoals()
   // 지금 학습 중인 자료, 없으면 가장 최근 자료
-  const material =
+  const listedMaterial =
     materials.data?.items.find((m) => m.id === materialId) ?? materials.data?.items[0]
+  const detail = useMaterial(listedMaterial?.id)
+  const material = detail.data ?? listedMaterial
   const units = useUnits(material?.id)
   const concepts = useConcepts(material?.id)
   const remove = useDeleteMaterial()
@@ -139,23 +143,23 @@ export default function MaterialsPage() {
     )
   }
 
-  const openSource = async () => {
+  const openSource = () => {
     if (USE_MOCK) return
-    try {
-      const { url } = await getMaterialSource(material.id, 1)
-      window.open(url, '_blank', 'noopener')
-    } catch (err) {
-      alert(err.message)
-    }
+    navigate(`/source?materialId=${material.id}&page=1&plain=1`)
   }
 
   const onArchive = () => {
     if (USE_MOCK) return setMenuOpen(false)
-    archive.mutate({ id: material.id, archived: true }, { onError: (err) => alert(err.message) })
+    if (archive.isPending) return
+    archive.mutate(
+      { id: material.id, archived: !material.archived },
+      { onError: (err) => alert(err.message) },
+    )
     setMenuOpen(false)
   }
 
   const onDelete = () => {
+    if (remove.isPending) return
     if (!window.confirm('이 자료를 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return
     setMenuOpen(false)
     if (USE_MOCK) return
@@ -165,7 +169,7 @@ export default function MaterialsPage() {
       onError: (err) =>
         alert(
           err.status === 409
-            ? '학습 기록이 연결된 자료라 삭제할 수 없어요. 보관은 할 수 있어요.'
+            ? '분석 작업이 진행 중이거나 학습 기록이 연결된 자료라 삭제할 수 없어요. 보관은 할 수 있어요.'
             : err.message,
         ),
     })
@@ -173,12 +177,37 @@ export default function MaterialsPage() {
 
   const actions = [
     { label: '원본 보기', onClick: openSource },
-    { label: '개념 다시 확인', to: '/concepts' },
+    {
+      label: '개념 다시 확인',
+      onClick: () => {
+        if (!USE_MOCK && (material.archived || material.processing_status !== 'ready'))
+          return alert('분석이 완료된 보관되지 않은 자료만 개념을 확인할 수 있어요.')
+        if (!USE_MOCK) setIds({ materialId: material.id })
+        navigate('/concepts')
+      },
+    },
     { label: '더 보기', onClick: () => setMenuOpen((v) => !v) },
   ]
 
   return (
     <Screen header="app" tabs className="gap-[18px]">
+      {!USE_MOCK && materials.data?.items.length > 0 && (
+        <label className="flex flex-col gap-2 text-sm">
+          자료 선택 (보관된 자료 포함)
+          <select
+            value={material.id}
+            onChange={(e) => setIds({ materialId: e.target.value })}
+            className="rounded-xl border border-line p-3"
+          >
+            {materials.data.items.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.archived ? '[보관] ' : ''}
+                {m.filename}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="flex flex-col gap-[6px]">
         <h1 className="text-2xl leading-[1.35] font-bold tracking-[-0.72px]">
           내 공부의 근거, 내 자료
@@ -238,13 +267,15 @@ export default function MaterialsPage() {
             <button
               type="button"
               onClick={onArchive}
+              disabled={archive.isPending || remove.isPending}
               className="flex-1 rounded-xl bg-white py-2 text-[13px] font-bold text-sub"
             >
-              보관하기
+              {material?.archived ? '보관 해제하기' : '보관하기'}
             </button>
             <button
               type="button"
               onClick={onDelete}
+              disabled={archive.isPending || remove.isPending}
               className="flex-1 rounded-xl bg-white py-2 text-[13px] font-bold text-error"
             >
               삭제하기
@@ -252,6 +283,20 @@ export default function MaterialsPage() {
           </div>
         )}
       </Card>
+      {!USE_MOCK && <MaterialRecovery material={material} />}
+      {!USE_MOCK && material?.processing_status === 'upload_pending' && (
+        <div className="rounded-xl bg-cool p-3 text-sm">
+          <p>파일 전송 또는 분석 시작이 아직 확인되지 않은 자료예요.</p>
+          <p className="mt-2 text-xs text-sub">
+            같은 브라우저 화면에서는 업로드 페이지에서 이어서 확인할 수 있어요. 새로고침으로 대기
+            정보가 사라졌다면 잠시 후 상태를 다시 확인해 주세요. 계속 미완료라면 삭제 후 다시
+            업로드할 수 있어요. 진행 중인 분석은 서버가 삭제를 차단해요.
+          </p>
+          <Button variant="secondary" to="/upload">
+            업로드 상태 확인
+          </Button>
+        </div>
+      )}
 
       <h2 className="text-base leading-[1.4] font-bold tracking-[-0.16px]">
         이 자료에서 공부하는 개념

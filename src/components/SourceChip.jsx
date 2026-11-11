@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import iconFile from '@/assets/icons/file-xs.svg'
+import { USE_MOCK } from '@/api/client'
 
 /**
  * 근거 페이지 칩 · 누르면 A-16 근거 자료 보기로 이동
@@ -8,7 +9,9 @@ import iconFile from '@/assets/icons/file-xs.svg'
 export default function SourceChip({
   page,
   label,
-  file = '토익 문법 정리.pdf',
+  file,
+  materialId,
+  chunkId,
   onClick,
   className = '',
 }) {
@@ -16,7 +19,7 @@ export default function SourceChip({
   const content = (
     <>
       <img src={iconFile} alt="" className="size-3" />
-      {label ?? `p.${page}`}
+      {label ?? (page ? `p.${page}` : '원문')}
     </>
   )
   if (onClick) {
@@ -26,8 +29,20 @@ export default function SourceChip({
       </button>
     )
   }
+  if (!USE_MOCK && !materialId)
+    return (
+      <span className={cls} title="원본 식별자가 제공되지 않았어요.">
+        {content}
+      </span>
+    )
+  const params = new URLSearchParams({
+    file: file || (USE_MOCK ? '토익 문법 정리.pdf' : '업로드한 자료'),
+    page: String(page || 1),
+  })
+  if (materialId) params.set('materialId', materialId)
+  if (chunkId) params.set('chunkId', chunkId)
   return (
-    <Link to={`/source?file=${encodeURIComponent(file)}&page=${page}`} className={cls}>
+    <Link to={`/source?${params}`} className={cls}>
       {content}
     </Link>
   )
