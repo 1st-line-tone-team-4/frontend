@@ -7,6 +7,7 @@ import { Field, Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
 import { useUploadMaterial } from '@/hooks/useStudyApi'
 import { fileBaseName } from '@/utils/format'
+import { getPdfPageCount } from '@/utils/pdf'
 
 // 명세상 업로드 가능한 형식: PDF · 텍스트 · PNG · JPEG
 const ACCEPT = '.pdf,.txt,.png,.jpg,.jpeg'
@@ -16,22 +17,47 @@ export default function UploadPage() {
   const navigate = useNavigate()
   const fileRef = useRef(null)
   const [file, setFile] = useState(null)
+  const [totalPages, setTotalPages] = useState(null)
+  const [isCalculating, setIsCalculating] = useState(false)
   // null 이면 직접 입력 전 → 올린 파일명을 시험 이름으로 사용
   const [typedName, setTypedName] = useState(null)
   const examName = typedName ?? fileBaseName(file?.name)
   const [dragging, setDragging] = useState(false)
   const upload = useUploadMaterial()
 
+  const selectFile = async (selectedFile) => {
+    setFile(selectedFile)
+    setTotalPages(null)
+
+    const isPdf =
+      selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')
+    if (!isPdf) return
+
+    setIsCalculating(true)
+    try {
+      setTotalPages(await getPdfPageCount(selectedFile))
+    } catch (error) {
+      console.error('PDF page count failed:', error)
+      alert('PDF 페이지 수를 읽지 못했어요. 파일을 다시 선택해 주세요.')
+    } finally {
+      setIsCalculating(false)
+    }
+  }
+
   const onDrop = (e) => {
     e.preventDefault()
     setDragging(false)
-    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0])
+    if (e.dataTransfer.files[0]) void selectFile(e.dataTransfer.files[0])
   }
 
   const onSubmit = () => {
     if (!file) return fileRef.current?.click()
+    if (isCalculating) return
     upload.mutate(file, {
-      onSuccess: () => navigate('/upload/exam', { state: { examName } }),
+      onSuccess: () =>
+        navigate('/upload/exam', {
+          state: { examName, fileName: file.name, totalPages },
+        }),
       onError: (err) => alert(err.message),
     })
   }
@@ -40,8 +66,12 @@ export default function UploadPage() {
     <Screen
       header={{ title: '자료 업로드' }}
       bottom={
-        <Button onClick={onSubmit} disabled={upload.isPending}>
-          {upload.isPending ? '업로드 중이에요…' : '파일 업로드하기'}
+        <Button onClick={onSubmit} disabled={upload.isPending || isCalculating}>
+          {isCalculating
+            ? '페이지 수를 계산하고 있어요…'
+            : upload.isPending
+              ? '업로드 중이에요…'
+              : '파일 업로드하기'}
         </Button>
       }
       className="gap-0"
@@ -72,9 +102,14 @@ export default function UploadPage() {
       <input
         ref={fileRef}
         type="file"
+        id="study-material"
+        name="study-material"
         accept={ACCEPT}
         className="hidden"
-        onChange={(e) => setFile(e.target.files[0] ?? null)}
+        onChange={(e) => {
+          const selectedFile = e.target.files[0]
+          if (selectedFile) void selectFile(selectedFile)
+        }}
       />
 
       <Field label="시험 이름" className="mt-6">

@@ -1,10 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import iconUpload from '@/assets/icons/upload-sm.svg'
 import iconFile from '@/assets/icons/file.svg'
 import iconCheck from '@/assets/icons/check-primary.svg'
 import iconCheckCircle from '@/assets/icons/check-circle.svg'
-import iconCalendar from '@/assets/icons/calendar-sm.svg'
 import { USE_MOCK } from '@/api/client'
 import Button from '@/components/Button'
 import Card, { Divider, SectionTitle } from '@/components/Card'
@@ -14,6 +13,7 @@ import Screen, { BottomNote, PageTitle } from '@/components/Screen'
 import { useCreateExamGoal, useMaterial, useUploadMaterial } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { fileBaseName, formatBytes, MIME_LABEL } from '@/utils/format'
+import { getPdfPageCount } from '@/utils/pdf'
 
 // 더미 (목 모드에서 표시)
 const DUMMY_FILE = { name: '토익 문법 정리.pdf', meta: 'PDF · 32페이지 · 2.4 MB', status: 'ready' }
@@ -40,6 +40,72 @@ const STATUS_CHIP = {
   processing: '분석 중',
   ready: '업로드 완료',
   failed: '분석 실패',
+}
+
+const ANALYSIS_STEPS = ['파일 확인', '문서 구조 분석', '개념과 근거 정리']
+
+function MaterialAnalyzingView({ status }) {
+  const [step, setStep] = useState(status === 'processing' ? 1 : 0)
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setStep((current) => Math.min(current + 1, ANALYSIS_STEPS.length - 1))
+    }, 900)
+    return () => clearInterval(timer)
+  }, [])
+
+  return (
+    <Screen header={{ title: '자료 분석 중' }} className="gap-8">
+      <PageTitle
+        title="자료를 분석하고 있어요"
+        desc="AI가 문서의 구조와 개념을 정리하고 있어요. 분석이 끝나면 자동으로 다음 단계로 넘어갈 수 있어요."
+      />
+
+      <div className="flex flex-col items-center gap-3 py-4">
+        <span
+          className="flex size-20 animate-spin items-center justify-center rounded-full border-4 border-primary/20 border-t-primary text-3xl font-bold text-primary"
+          aria-label="자료 분석 중"
+        >
+          @
+        </span>
+        <p className="text-sm font-bold text-primary">자료를 분석하고 있어요…</p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex justify-between text-xs font-bold">
+          <span className="text-sub">진행 중</span>
+          <span className="text-primary">AI 분석</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-cool">
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+        </div>
+      </div>
+
+      <ol className="flex flex-col gap-1">
+        {ANALYSIS_STEPS.map((label, index) => {
+          const done = index < step
+          const current = index === step
+          return (
+            <li key={label} className="flex items-center gap-[14px] py-3">
+              <span
+                className={`flex size-8 items-center justify-center rounded-full text-sm font-bold ${
+                  done
+                    ? 'bg-primary text-white'
+                    : current
+                      ? 'border-2 border-primary text-primary'
+                      : 'border-[1.5px] border-line text-muted'
+                }`}
+              >
+                {done ? <img src={iconCheck} alt="" className="size-[11px]" /> : index + 1}
+              </span>
+              <span className={`text-[15px] ${current ? 'font-bold' : 'text-muted'}`}>{label}</span>
+              {current && <span className="ml-auto text-xs text-primary">진행 중</span>}
+            </li>
+          )
+        })}
+      </ol>
+    </Screen>
+  )
 }
 
 function getLocalDateString(date = new Date()) {
@@ -70,44 +136,54 @@ function guessExamType(title) {
   return 'school_exam'
 }
 
-// 업로드 자료 페이지 수와 시험 날짜로 하루 권장 학습량 계산 (마지막 날은 전체 복습)
+// 업로드 자료 페이지 수와 시험 날짜로 하루 권장 학습량 계산
 function buildReadingPlan(pageCount, examDate) {
+  if (!pageCount || !examDate) return null
+
   const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const days = Math.max(getDday(examDate), 1) // 시험 전날까지 학습
-  const studyDays = Math.max(days - 1, 1)
-  const perDay = Math.ceil(pageCount / studyDays)
-  const end = new Date(today)
-  end.setDate(today.getDate() + days - 1)
+  const dDay = getDday(examDate)
+
+  if (dDay <= 0) return null
+
+  const studyDays = Math.max(1, dDay - 1)
+  const pagesPerDay = Math.ceil(pageCount / studyDays)
 
   const plan = []
-  for (let i = 0; i < studyDays; i += 1) {
-    const from = i * perDay + 1
-    if (from > pageCount) break
-    const to = Math.min((i + 1) * perDay, pageCount)
-    const d = new Date(today)
-    d.setDate(today.getDate() + i)
+  let currentPage = 1
+
+  for (let i = 1; i <= studyDays; i += 1) {
+    const endPage = Math.min(currentPage + pagesPerDay - 1, pageCount)
+    const planDate = new Date(today)
+    planDate.setDate(today.getDate() + i - 1)
+
     plan.push({
-      day: i === 0 ? `${md(d)} · 오늘 목표` : md(d),
-      range: `p.${from}–${to}`,
-      today: i === 0,
+      day: i === 1 ? `${md(planDate)} · 오늘 목표` : md(planDate),
+      range: `p.${currentPage}–${endPage}`,
+      today: i === 1,
     })
+    currentPage = endPage + 1
   }
-  if (days > 1) plan.push({ day: `${md(end)} · 마지막 복습`, range: '전체 복습' })
+
+  if (dDay > 1) {
+    const [year, month, day] = examDate.split('-').map(Number)
+    const reviewDate = new Date(year, month - 1, day - 1)
+    plan.push({ day: `${md(reviewDate)} · 마지막 복습`, range: '전체 복습' })
+  }
 
   return {
     plan,
     summary: [
       ['총 페이지', `${pageCount}페이지`],
-      ['남은 기간', `${days}일 (${md(today)}–${md(end)})`],
-      ['최소 일일 목표', `${perDay}페이지`],
+      ['남은 기간', `${dDay}일`],
+      ['최소 일일 목표', `${pagesPerDay}페이지`],
     ],
-    chip: days > 1 ? `${plan.length - 1}일 학습 + 1일 복습` : '하루 학습',
+    chip: dDay > 1 ? `${studyDays}일 학습 + 1일 복습` : '벼락치기 학습',
     note:
-      days > 1
-        ? `권장안은 ${plan.length - 1}일 동안 ${perDay}페이지씩 읽고 마지막 날은 전체 복습하는 방식이에요.`
-        : `오늘 ${pageCount}페이지를 모두 읽는 방식이에요.`,
+      dDay > 1
+        ? `권장안은 ${studyDays}일 동안 하루 ${pagesPerDay}페이지씩 읽고 마지막 날은 전체 복습하는 방식이에요.`
+        : '시험이 얼마 남지 않았어요! 전체 분량을 오늘 모두 확인하는 것을 권장해요.',
   }
 }
 
@@ -116,7 +192,11 @@ export default function UploadExamPage() {
   const navigate = useNavigate()
   const { state } = useLocation()
   const fileRef = useRef(null)
-  const [mockFileName, setMockFileName] = useState(DUMMY_FILE.name)
+  const [mockFileName, setMockFileName] = useState(state?.fileName ?? DUMMY_FILE.name)
+
+  const [totalPages, setTotalPages] = useState(state?.totalPages ?? (USE_MOCK ? 32 : null))
+  const [isCalculating, setIsCalculating] = useState(false)
+  const [showAnalysis, setShowAnalysis] = useState(true)
   // null 이면 직접 입력 전 → 앞 화면의 시험 이름, 없으면 올린 파일명을 사용
   const [typedTitle, setTypedTitle] = useState(state?.examName || null)
   const [examDate, setExamDate] = useState(getLocalDateString())
@@ -127,9 +207,18 @@ export default function UploadExamPage() {
   const upload = useUploadMaterial()
   const createGoal = useCreateExamGoal()
 
+  useEffect(() => {
+    const timer = setTimeout(() => setShowAnalysis(false), 2500)
+    return () => clearTimeout(timer)
+  }, [])
+
   // 목 모드는 더미, 실제 모드는 API 자료 정보
   const file = USE_MOCK
-    ? { ...DUMMY_FILE, name: mockFileName }
+    ? {
+        ...DUMMY_FILE,
+        name: mockFileName,
+        meta: `PDF · ${totalPages ?? 32}페이지`,
+      }
     : material && {
         name: material.filename,
         meta: [
@@ -142,15 +231,39 @@ export default function UploadExamPage() {
         status: material.processing_status,
       }
   const title = typedTitle ?? fileBaseName(file?.name)
-  const reading =
-    !USE_MOCK && material?.page_count ? buildReadingPlan(material.page_count, examDate) : null
+  const pageCount = totalPages ?? material?.page_count ?? null
+  const reading = pageCount ? buildReadingPlan(pageCount, examDate) : null
+  const hasInvalidExamDate = pageCount && !reading
   const ready = file?.status === 'ready'
+  const isAnalyzing =
+    showAnalysis ||
+    (!USE_MOCK &&
+      (!material || ['upload_pending', 'queued', 'processing'].includes(material.processing_status)))
 
-  const onPickFile = (e) => {
+  const onPickFile = async (e) => {
     const picked = e.target.files[0]
     if (!picked) return
-    if (USE_MOCK) return setMockFileName(picked.name)
-    upload.mutate(picked, { onError: (err) => alert(err.message) })
+    if (USE_MOCK) {
+      setMockFileName(picked.name)
+    }
+
+    setIsCalculating(true)
+    try {
+      const isPdf = picked.type === 'application/pdf' || picked.name.toLowerCase().endsWith('.pdf')
+      if (isPdf) {
+        setTotalPages(await getPdfPageCount(picked))
+      } else {
+        setTotalPages(null)
+      }
+    } catch (error) {
+      console.error('PDF page count failed:', error)
+      alert('PDF 페이지 수를 읽지 못했어요. 파일을 다시 선택해 주세요.')
+      return
+    } finally {
+      setIsCalculating(false)
+    }
+
+    if (!USE_MOCK) upload.mutate(picked, { onError: (err) => alert(err.message) })
   }
 
   const onSubmit = () => {
@@ -162,16 +275,15 @@ export default function UploadExamPage() {
     )
   }
 
+  if (isAnalyzing) {
+    return <MaterialAnalyzingView status={material?.processing_status ?? 'queued'} />
+  }
+
   return (
     <Screen
       header={{ title: '강의자료 업로드' }}
       bottom={
         <>
-          <BottomNote>
-            올린 자료는 비공개예요.
-            <br />
-            개념 설명과 문제, 평가의 근거로만 사용돼요.
-          </BottomNote>
           <Button onClick={onSubmit} disabled={createGoal.isPending}>
             시험 선택하고 개념 확인
           </Button>
@@ -194,11 +306,23 @@ export default function UploadExamPage() {
             <img src={iconUpload} alt="" className="size-[17.28px]" />
           </span>
           <span className="flex-1 text-sm leading-[1.4] font-bold tracking-[-0.14px]">
-            {upload.isPending ? '업로드 중이에요…' : '파일을 추가해보세요'}
+            {isCalculating
+              ? '페이지 수를 계산하고 있어요…'
+              : upload.isPending
+                ? '업로드 중이에요…'
+                : '파일을 추가해보세요'}
           </span>
           <Chip tone="white">PDF · 텍스트 · 이미지</Chip>
         </button>
-        <input ref={fileRef} type="file" accept={ACCEPT} className="hidden" onChange={onPickFile} />
+        <input
+          ref={fileRef}
+          id="study-material-replace"
+          name="study-material-replace"
+          type="file"
+          accept={ACCEPT}
+          className="hidden"
+          onChange={onPickFile}
+        />
         {file && (
           <div className="flex items-center gap-3 rounded-[14px] border border-line px-4 py-[14px]">
             <span className="flex size-10 items-center justify-center rounded-xl bg-cool">
@@ -221,7 +345,12 @@ export default function UploadExamPage() {
       <div className="flex flex-col gap-[14px]">
         <SectionTitle title="시험 정보를 입력해 주세요" />
         <Field label="시험 이름">
-          <Input value={title} onChange={(e) => setTypedTitle(e.target.value)} />
+          <Input
+            id="exam-name"
+            name="exam-name"
+            value={title}
+            onChange={(e) => setTypedTitle(e.target.value)}
+          />
         </Field>
         <div className="flex flex-col gap-[14px]">
           <Field label="과목">
@@ -230,16 +359,17 @@ export default function UploadExamPage() {
         </div>
         <Field label="시험 날짜">
           <Input
+            id="exam-date"
+            name="exam-date"
             type="date"
             value={examDate}
             onChange={(event) => setExamDate(event.target.value)}
-            icon={iconCalendar}
             prefix={<Chip>{dday}</Chip>}
           />
         </Field>
       </div>
 
-      {(USE_MOCK || reading) && (
+      {(pageCount || (!reading && USE_MOCK)) && (
         <>
           <Divider />
 
@@ -248,40 +378,64 @@ export default function UploadExamPage() {
               title="하루 권장 학습량"
               desc="업로드 파일과 시험 날짜를 기준으로 계산했어요. 문제 풀이, 복습은 별도로 시간을 더 고려해 주세요."
             />
-            <dl className="flex flex-col gap-[10px] rounded-[14px] bg-cool px-4 py-[14px] text-[13px] leading-[1.4]">
-              {(reading?.summary ?? DUMMY_SUMMARY).map(([k, v]) => (
-                <div key={k} className="flex justify-between">
-                  <dt className="text-sub">{k}</dt>
-                  <dd className="font-bold">{v}</dd>
+            {reading ? (
+              <>
+                <dl className="flex flex-col gap-[10px] rounded-[14px] bg-cool px-4 py-[14px] text-[13px] leading-[1.4]">
+                  {reading.summary.map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <dt className="text-sub">{k}</dt>
+                      <dd className="font-bold">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className="flex items-center justify-between pt-[2px]">
+                  <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">권장 학습안</p>
+                  <Chip>{reading.chip}</Chip>
                 </div>
-              ))}
-            </dl>
-            <div className="flex items-center justify-between pt-[2px]">
-              <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">권장 학습안</p>
-              <Chip>{reading?.chip ?? '4일 학습 + 1일 복습'}</Chip>
-            </div>
-            <ul className="divide-y divide-line">
-              {(reading?.plan ?? DUMMY_PLAN).map((p) => (
-                <li
-                  key={p.day}
-                  className={`flex justify-between py-[10px] text-[13px] leading-[1.4] ${p.today ? 'font-bold text-primary' : ''}`}
-                >
-                  <span>{p.day}</span>
-                  <span className="font-bold">{p.range}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="text-xs leading-[1.5] text-sub">
-              {reading?.note ??
-                '권장안은 4일 동안 8페이지씩 읽고 마지막 날은 전체 복습하는 방식이에요.'}
-            </p>
+                <ul className="divide-y divide-line">
+                  {reading.plan.map((p) => (
+                    <li
+                      key={p.day}
+                      className={`flex justify-between py-[10px] text-[13px] leading-[1.4] ${p.today ? 'font-bold text-primary' : ''}`}
+                    >
+                      <span>{p.day}</span>
+                      <span className="font-bold">{p.range}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs leading-[1.5] text-sub">{reading.note}</p>
+              </>
+            ) : hasInvalidExamDate ? (
+              <p className="rounded-[14px] bg-cool px-4 py-[14px] text-xs leading-[1.5] text-sub">
+                시험 날짜가 오늘이거나 지났어요. 미래 날짜를 선택하면 {pageCount}페이지를 남은
+                기간에 맞춰 자동으로 나눠 드려요.
+              </p>
+            ) : (
+              <>
+                <dl className="flex flex-col gap-[10px] rounded-[14px] bg-cool px-4 py-[14px] text-[13px] leading-[1.4]">
+                  {DUMMY_SUMMARY.map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <dt className="text-sub">{k}</dt>
+                      <dd className="font-bold">{v}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <ul className="divide-y divide-line">
+                  {DUMMY_PLAN.map((p) => (
+                    <li
+                      key={p.day}
+                      className="flex justify-between py-[10px] text-[13px] leading-[1.4]"
+                    >
+                      <span>{p.day}</span>
+                      <span className="font-bold">{p.range}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
         </>
       )}
-
-      <Button variant="secondary" onClick={() => fileRef.current?.click()}>
-        파일 바꾸기
-      </Button>
 
       {file && (
         <Card tone="gradient" className="rounded-[18px] p-[18px]">
