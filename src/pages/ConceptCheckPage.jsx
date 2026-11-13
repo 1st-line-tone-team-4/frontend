@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQueries } from '@tanstack/react-query'
 import iconPen from '@/assets/icons/pen.svg'
 import iconTrash from '@/assets/icons/trash.svg'
 import iconRight from '@/assets/icons/right-primary.svg'
@@ -12,7 +13,8 @@ import Checkbox from '@/components/Checkbox'
 import Chip from '@/components/Chip'
 import Screen, { BottomNote, PageTitle } from '@/components/Screen'
 import Source from '@/components/Source'
-import { useConcepts, useConfirmConceptsAndPlan, useMaterial, useUnits } from '@/hooks/useStudyApi'
+import { useConfirmConceptsAndPlan } from '@/hooks/useStudyApi'
+import * as Api from '@/api/study'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { pageRange } from '@/utils/format'
 
@@ -50,6 +52,7 @@ function toView(material, units, concepts) {
   const sorted = [...units].sort((a, b) => a.ordinal - b.ordinal)
   const conceptItems = concepts.map((c) => ({
     id: c.concept_id,
+    materialId: material.id,
     unitId: c.unit_id,
     text: c.current_version.name,
     page: pageRange(c.current_version.evidence),
@@ -61,6 +64,7 @@ function toView(material, units, concepts) {
       .sort((a, b) => a.ordinal - b.ordinal)
       .map((k) => ({
         id: k.id,
+        materialId: material.id,
         conceptId: c.concept_id,
         text: k.criterion,
         page: pageRange(c.current_version.evidence),
@@ -71,7 +75,7 @@ function toView(material, units, concepts) {
     fileName: material?.filename ?? '',
     desc: `${concepts.length}개 개념 · 확인 항목 ${criteria.length}개를 추출했어요.`,
     units: sorted
-      .map((u) => ({ id: u.id, title: u.title }))
+      .map((u) => ({ id: u.id, materialId: material.id, title: u.title }))
       .filter((u) => conceptItems.some((c) => c.unitId === u.id)),
     concepts: conceptItems,
     criteria,
@@ -175,7 +179,7 @@ function ConceptCheckView({ view, rawConcepts }) {
   const concepts = useItems(view.concepts)
   const criteria = useItems(view.criteria)
   const [expanded, setExpanded] = useState(false)
-  const { materialId, examGoalId } = useStudyStore()
+  const { materialId, materialIds, examGoalId } = useStudyStore()
   const confirm = useConfirmConceptsAndPlan()
 
   const onConfirm = () => {
@@ -205,7 +209,7 @@ function ConceptCheckView({ view, rawConcepts }) {
     if (empty) return alert(`'${empty.name}'의 확인 항목을 1개 이상 남겨 주세요.`)
 
     confirm.mutate(
-      { materialId, examGoalId, concepts: payload },
+      { materialId, materialIds, examGoalId, concepts: payload },
       { onSuccess: () => navigate('/today'), onError: (err) => alert(err.message) },
     )
   }

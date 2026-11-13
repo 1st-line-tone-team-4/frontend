@@ -14,6 +14,14 @@ export function parseYmd(ymd) {
   return new Date(y, m - 1, d)
 }
 
+export function daysUntil(ymd) {
+  if (!ymd) return null
+  const target = parseYmd(ymd)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((target - today) / (1000 * 60 * 60 * 24))
+}
+
 export function toYmd(date = new Date()) {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')

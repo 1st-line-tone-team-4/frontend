@@ -4,74 +4,62 @@ import iconUpload from '@/assets/icons/upload.svg'
 import Button from '@/components/Button'
 import Chip from '@/components/Chip'
 import { Field, Input } from '@/components/Field'
+import { Modal } from '@/components/Overlay'
 import Screen, { PageTitle } from '@/components/Screen'
-import { useUploadMaterial } from '@/hooks/useStudyApi'
+import UploadFileList, { RejectedFiles } from '@/components/UploadFileList'
+import { useStudyStore } from '@/stores/useStudyStore'
+import { useUploadQueueStore } from '@/stores/useUploadQueueStore'
 import { fileBaseName } from '@/utils/format'
-import { getPdfPageCount } from '@/utils/pdf'
-
-// 명세상 업로드 가능한 형식: PDF · 텍스트 · PNG · JPEG
-const ACCEPT = '.pdf,.txt,.png,.jpg,.jpeg'
+import { ACCEPT } from '@/utils/materialFiles'
 
 // 02 자료 업로드
 export default function UploadPage() {
   const navigate = useNavigate()
   const fileRef = useRef(null)
-  const [file, setFile] = useState(null)
-  const [totalPages, setTotalPages] = useState(null)
-  const [isCalculating, setIsCalculating] = useState(false)
-  // null 이면 직접 입력 전 → 올린 파일명을 시험 이름으로 사용
+  const items = useUploadQueueStore((s) => s.items)
+  const { addFiles, startAll, remove, retry } = useUploadQueueStore.getState()
+  const isPro = useStudyStore((s) => s.isPro)
+  const maxFiles = isPro ? 20 : 3
+  const [rejected, setRejected] = useState([])
+  const [showProModal, setShowProModal] = useState(false)
+  const isCalculating = items.some((it) => it.pagesStatus === 'counting')
+  // null 이면 직접 입력 전 → 처음 올린 파일명을 시험 이름으로 사용
   const [typedName, setTypedName] = useState(null)
-  const examName = typedName ?? fileBaseName(file?.name)
+  const examName = typedName ?? fileBaseName(items[0]?.name)
   const [dragging, setDragging] = useState(false)
-  const upload = useUploadMaterial()
+  const pendingCount = items.filter((item) => item.status === 'idle').length
 
-  const selectFile = async (selectedFile) => {
-    setFile(selectedFile)
-    setTotalPages(null)
-
-    const isPdf =
-      selectedFile.type === 'application/pdf' || selectedFile.name.toLowerCase().endsWith('.pdf')
-    if (!isPdf) return
-
-    setIsCalculating(true)
-    try {
-      setTotalPages(await getPdfPageCount(selectedFile))
-    } catch (error) {
-      console.error('PDF page count failed:', error)
-      alert('PDF 페이지 수를 읽지 못했어요. 파일을 다시 선택해 주세요.')
-    } finally {
-      setIsCalculating(false)
+  const selectFiles = (fileList) => {
+    if (!fileList?.length) return
+    const files = [...fileList]
+    const available = maxFiles - items.length
+    if (available <= 0) {
+      setShowProModal(true)
+      return
     }
+    if (files.length > available) setShowProModal(true)
+    setRejected(addFiles(files.slice(0, available)))
   }
 
   const onDrop = (e) => {
     e.preventDefault()
     setDragging(false)
-    if (e.dataTransfer.files[0]) void selectFile(e.dataTransfer.files[0])
+    selectFiles(e.dataTransfer.files)
   }
 
   const onSubmit = () => {
-    if (!file) return fileRef.current?.click()
+    if (items.length === 0) return fileRef.current?.click()
     if (isCalculating) return
-    upload.mutate(file, {
-      onSuccess: () =>
-        navigate('/upload/exam', {
-          state: { examName, fileName: file.name, totalPages },
-        }),
-      onError: (err) => alert(err.message),
-    })
+    startAll()
+    navigate('/upload/exam', { state: { examName } })
   }
 
   return (
     <Screen
       header={{ title: '자료 업로드' }}
       bottom={
-        <Button onClick={onSubmit} disabled={upload.isPending || isCalculating}>
-          {isCalculating
-            ? '페이지 수를 계산하고 있어요…'
-            : upload.isPending
-              ? '업로드 중이에요…'
-              : '파일 업로드하기'}
+        <Button onClick={onSubmit} disabled={isCalculating}>
+          {pendingCount > 1 ? `파일 ${pendingCount}개 업로드하기` : '파일 업로드하기'}
         </Button>
       }
       className="gap-0"
@@ -80,7 +68,13 @@ export default function UploadPage() {
 
       <button
         type="button"
-        onClick={() => fileRef.current?.click()}
+        onClick={() => {
+          if (items.length >= maxFiles) {
+            setShowProModal(true)
+            return
+          }
+          fileRef.current?.click()
+        }}
         onDragOver={(e) => {
           e.preventDefault()
           setDragging(true)
@@ -95,7 +89,9 @@ export default function UploadPage() {
           <img src={iconUpload} alt="" className="size-[23.04px]" />
         </span>
         <span className="text-[15px] leading-[1.4] font-bold tracking-[-0.15px]">
-          {file ? file.name : '파일을 선택하거나 여기에 놓으세요'}
+          {items.length
+            ? `파일 추가 (${items.length}/${maxFiles})`
+            : '파일을 선택하거나 여기에 놓으세요'}
         </span>
         <Chip tone="white">PDF · 텍스트 · 이미지</Chip>
       </button>
@@ -105,12 +101,20 @@ export default function UploadPage() {
         id="study-material"
         name="study-material"
         accept={ACCEPT}
+        multiple
         className="hidden"
         onChange={(e) => {
-          const selectedFile = e.target.files[0]
-          if (selectedFile) void selectFile(selectedFile)
+          selectFiles(e.target.files)
+          e.target.value = '' // 같은 파일을 지웠다 다시 고를 수 있게
         }}
       />
+
+      {(items.length > 0 || rejected.length > 0) && (
+        <div className="mt-4 flex flex-col gap-[10px]">
+          <RejectedFiles rejected={rejected} />
+          <UploadFileList items={items} onRemove={remove} onRetry={retry} />
+        </div>
+      )}
 
       <Field label="시험 이름" className="mt-6">
         <Input value={examName} onChange={(e) => setTypedName(e.target.value)} />
@@ -127,6 +131,19 @@ export default function UploadPage() {
           강의 검색하기
         </Button>
       </div>
+
+      <Modal
+        open={showProModal}
+        title="파일을 더 추가하려면 Pro가 필요해요"
+        desc={`일반 회원은 파일을 최대 ${maxFiles}개까지 업로드할 수 있어요.\nPro로 업그레이드하면 최대 20개까지 사용할 수 있어요.`}
+        confirmLabel="Pro 안내 보기"
+        cancelLabel="닫기"
+        onClose={() => setShowProModal(false)}
+        onConfirm={() => {
+          setShowProModal(false)
+          navigate('/profile')
+        }}
+      />
     </Screen>
   )
 }

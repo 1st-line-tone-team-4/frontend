@@ -28,6 +28,10 @@ export const useSettingsStore = create(
         quietTo: '08:00',
       },
       marketingAgreedAt: null,
+      // 자료 분석 AI (POST /materials/{id}/complete 의 model_id · X-AI-Key)
+      // 비어 있으면 .env.local 의 VITE_AI_MODEL_ID · VITE_AI_KEY 를 사용
+      aiModelId: null,
+      aiKey: null,
       set: (patch) => set(patch),
       setNotify: (patch) => set((s) => ({ notify: { ...s.notify, ...patch } })),
     }),

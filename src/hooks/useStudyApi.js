@@ -3,7 +3,7 @@ import { USE_MOCK, mockResponse } from '@/api/client'
 import { waitForJob } from '@/api/jobs'
 import * as Api from '@/api/study'
 import { useStudyStore } from '@/stores/useStudyStore'
-import { formatDday } from '@/utils/format'
+import { daysUntil, formatDday } from '@/utils/format'
 
 /**
  * React Query 훅 모음
@@ -30,11 +30,12 @@ export function useToday() {
   })
 }
 
-// 상단 D-day 칩 · 목 모드에선 시안 그대로 'D-5'
+// 상단 D-day 칩 · 저장된 시험 날짜를 기준으로 계산
 export function useDday() {
+  const examDate = useStudyStore((s) => s.examDate)
   const { data } = useToday()
-  if (USE_MOCK) return 'D-5'
-  return formatDday(data?.days_remaining)
+  if (USE_MOCK) return formatDday(daysUntil(examDate)) ?? 'D-5'
+  return formatDday(daysUntil(examDate) ?? data?.days_remaining)
 }
 
 export function useCreateExamGoal() {
@@ -42,8 +43,8 @@ export function useCreateExamGoal() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: mockOr(Api.createExamGoal, { id: 'mock-goal' }),
-    onSuccess: (goal) => {
-      setIds({ examGoalId: goal.id })
+    onSuccess: (goal, variables) => {
+      setIds({ examGoalId: goal.id, examDate: variables?.exam_date ?? goal?.exam_date ?? null })
       qc.invalidateQueries({ queryKey: ['exam-goals'] })
     },
   })
@@ -120,9 +121,28 @@ export function useConfirmConceptsAndPlan() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: mockOr(
-      async ({ materialId, examGoalId, concepts }) => {
-        await Api.confirmConcepts(materialId, concepts)
-        return Api.createStudyPlan({ exam_goal_id: examGoalId, material_ids: [materialId] })
+      async ({ materialId, materialIds, examGoalId, concepts }) => {
+        const grouped = concepts.reduce((groups, concept) => {
+          const id = concept.material_id ?? materialId
+          groups[id] = [...(groups[id] ?? []), concept]
+          return groups
+        }, {})
+        const ids = (materialIds?.length ? materialIds : [materialId]).filter(
+          (id) => grouped[id]?.length,
+        )
+        await Promise.all(
+          ids.map((id) =>
+            Api.confirmConcepts(
+              id,
+              grouped[id].map((concept) => {
+                const next = { ...concept }
+                delete next.material_id
+                return next
+              }),
+            ),
+          ),
+        )
+        return Api.createStudyPlan({ exam_goal_id: examGoalId, material_ids: ids })
       },
       { id: 'mock-plan' },
     ),

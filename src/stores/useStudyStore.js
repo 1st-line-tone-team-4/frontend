@@ -6,7 +6,11 @@ export const useStudyStore = create(
   persist(
     (set) => ({
       materialId: null,
+      // 업로드 · 분석이 끝난 자료들 (학습 계획 생성 material_ids · 최대 20개)
+      materialIds: [],
+      isPro: false,
       examGoalId: null,
+      examDate: null,
       planId: null,
       questionSetId: null,
       sessionId: null,
@@ -14,7 +18,10 @@ export const useStudyStore = create(
       reset: () =>
         set({
           materialId: null,
+          materialIds: [],
+          isPro: false,
           examGoalId: null,
+          examDate: null,
           planId: null,
           questionSetId: null,
           sessionId: null,

@@ -1,8 +1,9 @@
 import { api, unwrap } from './client'
 
 // 비동기 작업(AI 분석·생성·채점·리포트) 상태
-export const getJob = (jobId) => api.get(`/jobs/${jobId}`).then(unwrap)
-export const retryJob = (jobId) => api.post(`/jobs/${jobId}/retry`, {}).then(unwrap)
+// config: axios 옵션 (예: { signal } 로 요청 취소)
+export const getJob = (jobId, config) => api.get(`/jobs/${jobId}`, config).then(unwrap)
+export const retryJob = (jobId, config) => api.post(`/jobs/${jobId}/retry`, {}, config).then(unwrap)
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 

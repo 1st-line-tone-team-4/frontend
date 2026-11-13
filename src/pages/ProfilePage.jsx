@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import iconPen from '@/assets/icons/pen-lg.svg'
 import iconCard from '@/assets/icons/card.svg'
@@ -8,11 +9,13 @@ import iconLogout from '@/assets/icons/logout.svg'
 import iconRight from '@/assets/icons/right-muted-16.svg'
 import { Divider } from '@/components/Card'
 import { BellIcon, SlidersIcon, UserIcon } from '@/components/icons'
+import { BottomSheet, toast } from '@/components/Overlay'
+import { Field, Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
-import { USE_MOCK } from '@/api/client'
-import { useDday, useMe } from '@/hooks/useStudyApi'
+import { useDday } from '@/hooks/useStudyApi'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useStudyStore } from '@/stores/useStudyStore'
+import { useProfileStore } from '@/stores/useProfileStore'
 
 const subscriptionMenu = [
   { icon: iconCard, title: '결제 수단 관리', desc: '등록 전 · 요금 확정 후 안내' },
@@ -57,10 +60,11 @@ export default function ProfilePage() {
   const navigate = useNavigate()
   const logout = useAuthStore((s) => s.logout)
   const resetStudy = useStudyStore((s) => s.reset)
+  const name = useProfileStore((s) => s.name)
+  const setName = useProfileStore((s) => s.setName)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [draftName, setDraftName] = useState(name)
   const dday = useDday()
-  const me = useMe()
-  // 목 모드는 시안의 '지민', 실제 모드는 /me 의 표시 이름
-  const name = USE_MOCK ? '지민' : (me.data?.display_name ?? me.data?.email?.split('@')[0] ?? '')
 
   const settingsMenu = [
     {
@@ -97,6 +101,7 @@ export default function ProfilePage() {
       onClick: () => {
         logout()
         resetStudy()
+        useProfileStore.getState().reset()
         navigate('/')
       },
     },
@@ -114,7 +119,14 @@ export default function ProfilePage() {
           <p className="text-[17px] font-bold tracking-[-0.17px]">{name ? `${name}님` : ''}</p>
           <p className="text-[13px] text-sub">차근차근, 내 말로 공부 중</p>
         </div>
-        <button type="button" aria-label="프로필 수정">
+        <button
+          type="button"
+          aria-label="프로필 수정"
+          onClick={() => {
+            setDraftName(name)
+            setSheetOpen(true)
+          }}
+        >
           <img src={iconPen} alt="" className="size-[18px]" />
         </button>
       </div>
@@ -144,6 +156,42 @@ export default function ProfilePage() {
       </p>
 
       <MenuList items={accountMenu} />
+
+      <BottomSheet
+        open={sheetOpen}
+        title="프로필 이름 변경"
+        onClose={() => setSheetOpen(false)}
+        footer={
+          <button
+            type="button"
+            className="flex h-[52px] w-full items-center justify-center rounded-[14px] bg-primary text-[17px] font-bold text-white"
+            onClick={() => {
+              const nextName = draftName.trim()
+              if (!nextName) return
+              setName(nextName)
+              setSheetOpen(false)
+              toast('이름을 저장했어요')
+            }}
+          >
+            저장
+          </button>
+        }
+      >
+        <div className="flex justify-center">
+          <span className="flex size-20 items-center justify-center rounded-full bg-primary-soft text-2xl font-bold text-primary">
+            {draftName.trim().slice(0, 1) || '선'}
+          </span>
+        </div>
+        <Field label="이름" strong>
+          <Input
+            id="profile-name"
+            name="profile-name"
+            value={draftName}
+            maxLength={12}
+            onChange={(event) => setDraftName(event.target.value)}
+          />
+        </Field>
+      </BottomSheet>
     </Screen>
   )
 }

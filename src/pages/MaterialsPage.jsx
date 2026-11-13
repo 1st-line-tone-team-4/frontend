@@ -108,7 +108,7 @@ function toView(material, materialCount, goal, units = [], concepts = []) {
 // 13 내 자료
 export default function MaterialsPage() {
   const dday = useDday()
-  const { materialId, examGoalId, setIds } = useStudyStore()
+  const { materialId, materialIds, examGoalId, setIds } = useStudyStore()
   const materials = useMaterials()
   const goals = useExamGoals()
   // 지금 학습 중인 자료, 없으면 가장 최근 자료
@@ -160,7 +160,11 @@ export default function MaterialsPage() {
     setMenuOpen(false)
     if (USE_MOCK) return
     remove.mutate(material.id, {
-      onSuccess: () => material.id === materialId && setIds({ materialId: null }),
+      onSuccess: () =>
+        setIds({
+          materialId: material.id === materialId ? null : materialId,
+          materialIds: materialIds.filter((id) => id !== material.id),
+        }),
       // 학습 기록이 연결된 자료는 409 → 보관만 가능
       onError: (err) =>
         alert(

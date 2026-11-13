@@ -11,7 +11,7 @@ export const api = axios.create({
   timeout: 15000,
 })
 
-const newIdempotencyKey = () =>
+export const newIdempotencyKey = () =>
   globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 api.interceptors.request.use((config) => {
@@ -35,6 +35,9 @@ api.interceptors.response.use(
       code: err.response?.data?.error?.code ?? 'NETWORK_ERROR',
       message: err.response?.data?.error?.message ?? '요청을 처리할 수 없습니다.',
       details: err.response?.data?.error?.details ?? [],
+      // 429 대응용 Retry-After 헤더 · AbortController 로 취소된 요청인지
+      retryAfter: err.response?.headers?.['retry-after'] ?? null,
+      canceled: axios.isCancel(err),
     })
   },
 )
