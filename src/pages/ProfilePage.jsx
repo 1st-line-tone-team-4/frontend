@@ -14,7 +14,7 @@ import { useProfileStore } from '@/stores/useProfileStore'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 
 // GET /billing/capabilities 의 subscription_status
-const SUBSCRIPTION_STATUS = { pricing_pending: '요금 안내 예정' }
+const SUBSCRIPTION_STATUS = { pricing_pending: '6900원' }
 
 function MenuList({ items }) {
   return (

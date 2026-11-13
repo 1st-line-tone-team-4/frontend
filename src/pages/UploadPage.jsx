@@ -100,7 +100,11 @@ export default function UploadPage() {
       )}
 
       <Field label="시험 이름" className="mt-6">
-        <Input value={examName} onChange={(e) => setTypedName(e.target.value)} />
+        <Input
+          value={examName}
+          onChange={(e) => setTypedName(e.target.value)}
+          placeholder="예: 토익 정기시험, 1학기 중간고사"
+        />
       </Field>
     </Screen>
   )

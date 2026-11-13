@@ -76,13 +76,17 @@ const DUMMY = {
   examLine: '토익 정기시험 · 11월 9일 월요일',
   conceptCount: 8,
   overdue: 0,
-  today: { date: '11.03', day: '화', count: 2, title: '현재시제 · 현재완료의 형태' },
+  today: { date: '11.03', day: '화', count: 2, title: '현재시제' },
   schedule: [
     { date: '11.04', day: '수', title: '과거시제 · 미래시제', count: 2 },
     { date: '11.05', day: '목', title: '수 일치 · since와 for', count: 2 },
     { date: '11.06', day: '금', title: '계속 용법', count: 1 },
     { date: '11.07', day: '토', title: '과거 시점 부사', count: 1 },
-  ].map((r) => ({ ...r, tasks: mockTasks(r.date, r.title.split(' · ')) })),
+  ].map((r) => ({
+    ...r,
+    title: r.title.replaceAll(' · ', '\n'),
+    tasks: mockTasks(r.date, r.title.split(' · ')),
+  })),
   review: { date: '11.08', day: '일', tasks: [] },
   exam: { date: '11.09', day: '월' },
 }
@@ -108,7 +112,7 @@ function toView(plan, goal) {
       return {
         ymd: d,
         ...formatMonthDay(d),
-        title: concepts.map((c) => c.concept_name).join(' · '),
+        title: concepts.map((c) => c.concept_name).join('\n'),
         count: concepts.length,
         reviewOnly: tasks.every((t) => t.task_type === 'review'),
         tasks,
@@ -130,7 +134,7 @@ function toView(plan, goal) {
     examLine: goal ? `${goal.title} · ${formatKoreanDate(goal.exam_date)}` : '',
     conceptCount,
     overdue,
-    today: rows[0]?.ymd === todayYmd ? rows[0] : null,
+    today: rows[0]?.ymd === todayYmd ? { ...rows[0], title: rows[0].title.split('\n')[0] } : null,
     schedule: rows.filter((r) => r.ymd !== todayYmd && r !== review),
     review,
     exam: goal ? formatMonthDay(goal.exam_date) : null,
@@ -207,7 +211,7 @@ export default function PlanPage() {
       {view.today && (
         <Link
           to="/today"
-          className="flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(158deg,#4e68b0_0%,var(--color-logo-navy)_74%)] py-4 pr-[18px] pl-5 text-white"
+          className="mx-1 my-3 flex flex-col gap-1.5 rounded-[18px] bg-[linear-gradient(158deg,#4e68b0_0%,var(--color-logo-navy)_74%)] p-3.5 text-white"
         >
           <span className="flex items-center justify-between">
             <span className="flex items-center gap-2">
@@ -220,7 +224,7 @@ export default function PlanPage() {
             </span>
             <img src={iconRightWhite} alt="" className="size-[18px]" />
           </span>
-          <span className="text-lg leading-[1.4] font-bold tracking-[-0.36px]">
+          <span className="mt-1 text-xl leading-[1.4] font-bold tracking-[-0.4px]">
             {view.today.title}
           </span>
         </Link>
@@ -238,10 +242,12 @@ export default function PlanPage() {
                 <span className="text-sm font-bold">{s.date}</span>
                 <span className="text-xs text-sub">{s.day}</span>
               </span>
-              <span className="flex min-w-0 flex-1 items-center gap-[6px]">
-                <img src={iconBook} alt="" className="size-[15px]" />
-                <span className="text-sm leading-[1.4] font-medium tracking-[-0.14px]">
-                  {s.title}
+              <span className="flex min-w-0 flex-1 items-start gap-[6px]">
+                <img src={iconBook} alt="" className="mt-[2px] size-[15px]" />
+                <span className="flex flex-col gap-1 text-sm leading-[1.4] font-medium tracking-[-0.14px]">
+                  {s.title.split('\n').map((title, i) => (
+                    <span key={`${title}-${i}`}>{title}</span>
+                  ))}
                 </span>
               </span>
               <Chip tone="cool">개념 {s.count}개</Chip>

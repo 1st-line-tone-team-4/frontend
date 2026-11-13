@@ -185,7 +185,7 @@ export default function MaterialsPage() {
   ]
 
   return (
-    <Screen header="app" tabs className="gap-[18px]">
+    <Screen header="app" tabs className="gap-2.5">
       <div className="flex flex-col gap-[6px]">
         <h1 className="text-2xl leading-[1.35] font-bold tracking-[-0.72px]">
           내 공부의 근거, 내 자료
@@ -196,7 +196,7 @@ export default function MaterialsPage() {
         </div>
       </div>
 
-      <Card tone="gradient" className="gap-3 rounded-[18px] px-[18px] pt-[18px] pb-4">
+      <Card className="gap-2.5 rounded-[18px] border border-blue-100 bg-gradient-to-br from-blue-50/80 to-indigo-50/40 p-3.5">
         <div className="flex items-center gap-3">
           <span className="flex size-11 items-center justify-center rounded-xl bg-white">
             <img src={iconFile} alt="" className="size-[21.12px]" />

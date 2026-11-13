@@ -9,7 +9,11 @@ export default function AppHeader() {
       <Link to="/today" aria-label="홈">
         <Logo />
       </Link>
-      <Link to="/profile" aria-label="프로필·설정" className="flex size-8 items-center justify-center rounded-2xl bg-cool">
+      <Link
+        to="/profile"
+        aria-label="프로필·설정"
+        className="flex size-8 items-center justify-center rounded-2xl bg-cool"
+      >
         <img src={iconUser} alt="" className="size-[18px]" />
       </Link>
     </div>

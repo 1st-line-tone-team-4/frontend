@@ -79,27 +79,6 @@ export function useMaterial(materialId) {
 export const useMaterials = () =>
   useQuery({ queryKey: ['materials'], queryFn: () => Api.listMaterials(), enabled: live(true) })
 
-// 업로드 URL 발급 → 파일 업로드 → 분석 시작
-export function useUploadMaterial() {
-  const setIds = useStudyStore((s) => s.setIds)
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: mockOr(
-      async (file) => {
-        const { material, upload_url } = await Api.createMaterialUpload(file)
-        await Api.putFileToSignedUrl(upload_url, file)
-        await Api.completeMaterialUpload(material.id, await resolveModelId())
-        return material
-      },
-      { id: 'mock-material' },
-    ),
-    onSuccess: (material) => {
-      setIds({ materialId: material.id })
-      qc.invalidateQueries({ queryKey: ['materials'] })
-    },
-  })
-}
-
 export function useDeleteMaterial() {
   const qc = useQueryClient()
   return useMutation({

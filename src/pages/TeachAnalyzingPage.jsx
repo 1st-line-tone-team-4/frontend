@@ -113,7 +113,7 @@ export default function TeachAnalyzingPage() {
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-cool">
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-700"
+            className="h-full rounded-full bg-progress transition-[width] duration-700"
             style={{ width: `${progress}%` }}
           />
         </div>

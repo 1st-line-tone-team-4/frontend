@@ -48,7 +48,9 @@ const DUMMY_TODAY = {
   ],
 }
 const DUMMY_READ = { v1: 1, v2: 1 }
-const DUMMY_WEAK = [{ concept_name: '과거 시점 부사', latest_coverage: 0.76, incorrect_attempts: 2 }]
+const DUMMY_WEAK = [
+  { concept_name: '과거 시점 부사', latest_coverage: 0.76, incorrect_attempts: 2 },
+]
 
 const conceptNames = (t) => t.concepts.map((c) => c.concept_name).join(' · ')
 const isClosed = (t) => t.status === 'completed' || t.status === 'skipped'
@@ -70,7 +72,8 @@ function quizChip(t) {
 function taskAction(t) {
   if (t.status === 'skipped' || (t.task_type === 'review' && t.status === 'completed'))
     return { label: '되돌리기', task: { taskId: t.id, status: 'pending' } }
-  if (t.status !== 'completed') return { label: '건너뛰기', task: { taskId: t.id, status: 'skipped' } }
+  if (t.status !== 'completed')
+    return { label: '건너뛰기', task: { taskId: t.id, status: 'skipped' } }
   return null
 }
 
@@ -205,6 +208,7 @@ function toView(today, read, weaknesses = []) {
     unitMeta: concepts.length > 1 ? `외 ${concepts.length - 1}개 개념` : '개념 1개',
     unitTo: concepts[0] ? `/study?concept=${concepts[0].concept_version_id}` : '/study',
     conceptCount: concepts.length,
+    progress: concepts.length ? Math.round((conceptDone / concepts.length) * 100) : 0,
     stats: [
       [`${conceptDone}/${concepts.length}`, '완료한 개념'],
       [avg, '평균 설명률'],
@@ -285,15 +289,17 @@ function StageCard({ stage, number, active, open, onToggle }) {
   const complete = stage.done === total
   return (
     <section
-      className={`flex flex-col rounded-[18px] border bg-white px-[14px] ${
-        active ? 'border-primary/40 shadow-[0_4px_16px_rgba(63,114,224,0.12)]' : 'border-line'
+      className={`flex flex-col rounded-[18px] border px-[14px] ${
+        active
+          ? 'border-blue-200 bg-gradient-to-b from-blue-50/60 to-white shadow-[0_4px_16px_rgba(63,114,224,0.10)]'
+          : 'border-line bg-white'
       }`}
     >
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={open}
-        className="flex items-center gap-[10px] py-[14px] text-left"
+        className="flex items-center gap-[10px] py-3 text-left"
       >
         <span
           className={`flex size-[26px] shrink-0 items-center justify-center rounded-lg text-[13px] leading-none font-bold ${
@@ -312,7 +318,7 @@ function StageCard({ stage, number, active, open, onToggle }) {
           {stage.title}
         </span>
         <span className="h-[5px] w-12 shrink-0 overflow-hidden rounded-full bg-cool">
-          <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+          <span className="block h-full rounded-full bg-progress" style={{ width: `${pct}%` }} />
         </span>
         <span className="w-8 shrink-0 text-right text-xs leading-[1.3] font-medium text-sub">
           {stage.done}/{total}
@@ -400,21 +406,31 @@ export default function TodayPage() {
         </h1>
       </div>
 
-      {/* 오늘의 단원 (그라데이션/오늘) · 진행률은 아래 지표에서 */}
+      {/* 오늘의 단원 (그라데이션/오늘) */}
       <Link
         to={view.unitTo}
-        className="mt-4 flex items-center gap-3 rounded-2xl bg-[linear-gradient(144deg,var(--color-logo-blue)_0%,var(--color-primary)_74%)] px-4 py-3 text-white"
+        className="mt-3 flex min-h-[168px] flex-col gap-3 rounded-[18px] bg-[linear-gradient(144deg,var(--color-logo-blue)_0%,var(--color-primary)_74%)] px-5 py-5 text-white"
       >
-        <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
-          <span className="truncate text-[11px] leading-[1.3] font-bold tracking-[-0.11px] text-white/80">
+        <span className="flex items-center justify-between">
+          <span className="min-w-0 truncate text-xs leading-[1.3] font-bold tracking-[-0.12px] text-white/80">
             {view.unitLabel}
           </span>
-          <span className="truncate text-base leading-[1.4] font-bold tracking-[-0.32px]">
-            {view.unitTitle}
-          </span>
-          <span className="truncate text-xs leading-[1.4] text-white/80">{view.unitMeta}</span>
+          <img src={iconRightWhite} alt="" className="size-[18px] shrink-0" />
         </span>
-        <img src={iconRightWhite} alt="" className="size-[18px] shrink-0" />
+        <span className="truncate text-xl leading-[1.4] font-bold tracking-[-0.4px]">
+          {view.unitTitle}
+        </span>
+        <span className="truncate text-[13px] leading-[1.4] text-white/80">{view.unitMeta}</span>
+        <span className="mt-auto flex items-end justify-between">
+          <span className="text-[13px] leading-[1.3] font-medium text-white/85">오늘 진행률</span>
+          <span className="text-2xl leading-none font-bold">{view.progress}%</span>
+        </span>
+        <span className="h-1 overflow-hidden rounded-full bg-white/30">
+          <span
+            className="block h-full rounded-full bg-white"
+            style={{ width: `${view.progress}%` }}
+          />
+        </span>
       </Link>
 
       {/* 학습 지표 */}
@@ -431,7 +447,7 @@ export default function TodayPage() {
       </div>
 
       {/* 오늘의 학습 단계 · 단계 카드 안에 개념별 상태 */}
-      <section className="-mx-6 mt-5 flex flex-1 flex-col gap-2 bg-cool px-6 pt-4 pb-5">
+      <section className="-mx-6 mt-4 flex flex-1 flex-col gap-2 bg-cool px-6 pt-3.5 pb-4">
         <div className="flex items-baseline justify-between px-1 pb-1 leading-[1.3]">
           <h2 className="text-base font-bold tracking-[-0.16px]">오늘의 학습 단계</h2>
           <span className="text-xs font-medium tracking-[-0.12px] text-sub">

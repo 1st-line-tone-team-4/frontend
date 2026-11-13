@@ -93,9 +93,9 @@ export default function RecordsPage() {
   const recent = USE_MOCK ? DUMMY_RECENT : toRecent(sessions.data?.[0], weaknesses.data)
 
   return (
-    <Screen header="app" tabs className="gap-[18px] pb-5">
+    <Screen header="app" tabs className="gap-3 pt-2 pb-5">
       <div className="flex flex-col gap-1">
-        <h1 className="text-2xl leading-[1.35] font-bold tracking-[-0.72px]">
+        <h1 className="text-xl leading-[1.35] font-bold tracking-[-0.6px]">
           설명할수록 선명해지는 실력
         </h1>
         <p className="text-sm leading-[1.4] tracking-[-0.14px] text-sub">
@@ -106,17 +106,17 @@ export default function RecordsPage() {
       {USE_MOCK && (
         <>
           {/* 이번 주 통계 (그라데이션/기록) */}
-          <div className="flex flex-col gap-[14px] rounded-[18px] bg-[linear-gradient(151deg,#5f8ff5_0%,var(--color-secondary)_74%)] px-5 py-[18px] text-white">
-            <p className="text-[13px] leading-[1.3] font-bold text-white/85">이번 주에 쌓은 공부</p>
+          <div className="flex flex-col gap-2 rounded-xl border border-primary/25 bg-primary-soft/70 px-3.5 py-2.5">
+            <p className="text-xs leading-[1.3] font-semibold text-primary">이번 주에 쌓은 공부</p>
             <div className="flex items-center">
               {weekly.map(([v, k], i) => (
                 <div key={k} className="flex flex-1 items-center">
-                  {i > 0 && <span className="h-8 w-px bg-white/30" />}
+                  {i > 0 && <span className="h-7 w-px bg-primary/15" />}
                   <div className="flex flex-1 flex-col items-center">
-                    <span className="text-[22px] leading-[1.25] font-bold tracking-[-0.44px]">
+                    <span className="text-lg leading-[1.3] font-bold tracking-[-0.36px]">
                       {v}
                     </span>
-                    <span className="text-xs leading-[1.3] text-white/82">{k}</span>
+                    <span className="text-[11px] leading-[1.3] text-sub">{k}</span>
                   </div>
                 </div>
               ))}
@@ -139,7 +139,7 @@ export default function RecordsPage() {
                 <div className="h-full w-[58%] rounded-full bg-muted" />
               </div>
               <div className="h-[6px] overflow-hidden rounded-full bg-cool">
-                <div className="h-full w-[83%] rounded-full bg-primary" />
+                <div className="h-full w-[83%] rounded-full bg-progress" />
               </div>
             </div>
             <p className="text-[13px] leading-[1.4] font-medium">
@@ -198,7 +198,7 @@ export default function RecordsPage() {
         <ul>
           {weak.map((w) => (
             <li key={w.id}>
-              <Link to={w.to ?? '/study'} className="flex items-center gap-[10px] py-3">
+              <Link to={w.to ?? '/study'} className="flex items-center gap-[10px] py-2.5">
                 <img src={iconDot} alt="" className="size-[6px]" />
                 <span className="flex flex-1 flex-col leading-[1.4]">
                   <span className="text-sm font-bold">{w.title}</span>
@@ -222,7 +222,7 @@ export default function RecordsPage() {
           ) : (
             <ul>
               {actions.data.map((a) => (
-                <li key={a.id} className="flex items-center gap-[10px] py-3">
+                <li key={a.id} className="flex items-center gap-[10px] py-2.5">
                   <span
                     className={`flex-1 text-sm leading-[1.4] ${a.status === 'completed' ? 'text-sub line-through' : 'font-medium'}`}
                   >

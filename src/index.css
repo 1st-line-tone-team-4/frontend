@@ -21,6 +21,11 @@
   --color-logo-navy: #3b4f84;
 }
 
+/* 그라데이션 포인트 · 진행 막대 채움 */
+@utility bg-progress {
+  background-image: linear-gradient(to right, var(--color-sky-400), var(--color-blue-600));
+}
+
 @layer base {
   body {
     /* 넓은 화면에서 430px 앱 영역이 배경과 구분되도록 바깥은 cool 톤 */

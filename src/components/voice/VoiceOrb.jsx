@@ -70,7 +70,7 @@ export default function VoiceOrb({ state, levelRef, size = 220, onClick, label }
         }`}
         style={{
           background:
-            'radial-gradient(circle at 32% 28%, #ffffff 0%, #d9e6ff 16%, #8fb3ff 38%, #6396f8 58%, #3f72e0 80%, #5a63d6 100%)',
+            'radial-gradient(circle at 32% 28%, #ffffff 0%, #d9e6ff 16%, #8fb3ff 38%, #6396f8 58%, #3b82f6 80%, #5a63d6 100%)',
         }}
       >
         {/* 안쪽에서 흐르는 빛 */}

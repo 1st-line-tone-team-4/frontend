@@ -16,7 +16,7 @@ export function Field({ label, strong = false, className = '', children }) {
 }
 
 const box =
-  'w-full rounded-xl bg-cool py-3 pr-3 pl-[14px] text-[15px] leading-[1.3] font-medium text-ink outline-none placeholder:text-muted focus:ring-2 focus:ring-primary/30'
+  'w-full rounded-xl border border-[#d5dbe6] bg-cool py-3 pr-3 pl-[14px] text-[15px] leading-[1.3] font-medium text-ink outline-none placeholder:text-muted focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/20'
 
 export function Input({ icon, prefix, className = '', ...props }) {
   if (!icon && !prefix) return <input className={`${box} ${className}`} {...props} />

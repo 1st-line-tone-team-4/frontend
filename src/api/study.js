@@ -1,4 +1,3 @@
-import axios from 'axios'
 import { api, unwrap, unwrapList } from './client'
 
 /* ── 사용자 · 시험 목표 ───────────────────────── */
@@ -12,18 +11,7 @@ export const updateExamGoal = (goalId, body) =>
   api.patch(`/exam-goals/${goalId}`, body).then(unwrap)
 
 /* ── 자료 ─────────────────────────────────────── */
-// 1) 업로드 URL 발급 → { material, upload_url, expires_at }
-export const createMaterialUpload = (file) =>
-  api
-    .post('/materials', { filename: file.name, mime_type: file.type, size_bytes: file.size })
-    .then(unwrap)
-// 2) 발급받은 서명 URL 로 파일 직접 업로드 (우리 서버가 아니므로 토큰 없이 axios 기본 인스턴스 사용)
-export const putFileToSignedUrl = (url, file) =>
-  axios.put(url, file, { headers: { 'Content-Type': file.type } })
-// 3) 업로드 완료 알리고 분석 시작 → { job } (model_id 필수)
-export const completeMaterialUpload = (materialId, modelId) =>
-  api.post(`/materials/${materialId}/complete`, { model_id: modelId }).then(unwrap)
-
+// 업로드(POST /materials → PUT 서명 URL → complete)는 materialUpload.js 에 있어요
 export const listMaterials = (params) => api.get('/materials', { params }).then(unwrapList)
 export const getMaterial = (materialId) => api.get(`/materials/${materialId}`).then(unwrap)
 export const deleteMaterial = (materialId) => api.delete(`/materials/${materialId}`)

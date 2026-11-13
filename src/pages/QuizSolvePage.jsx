@@ -183,7 +183,7 @@ export default function QuizSolvePage() {
         </div>
         <div className="h-1 overflow-hidden rounded-full bg-cool">
           <div
-            className="h-full rounded-full bg-primary"
+            className="h-full rounded-full bg-progress"
             style={{ width: `${(question.ordinal / question.total) * 100}%` }}
           />
         </div>

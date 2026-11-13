@@ -306,9 +306,11 @@ function ConceptItem({ concept, fileName, draft, onChange }) {
             </Source>
           )}
         </div>
-        <Chip tone={confirmed ? 'primary' : draft.dirty ? 'secondary' : 'cool'}>
-          {confirmed ? `확정 v${v.version_no}` : draft.dirty ? '수정함' : '확인 전'}
-        </Chip>
+        {(confirmed || draft.dirty) && (
+          <Chip tone={confirmed ? 'primary' : 'secondary'}>
+            {confirmed ? `확정 v${v.version_no}` : '수정함'}
+          </Chip>
+        )}
         <button
           type="button"
           aria-label="개념 이름 수정"

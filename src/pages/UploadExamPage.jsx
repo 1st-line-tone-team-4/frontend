@@ -78,7 +78,7 @@ function MaterialAnalyzingView({ status }) {
           <span className="text-primary">AI 분석</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-cool">
-          <div className="h-full w-1/2 animate-pulse rounded-full bg-primary" />
+          <div className="h-full w-1/2 animate-pulse rounded-full bg-progress" />
         </div>
       </div>
 
@@ -378,6 +378,7 @@ export default function UploadExamPage() {
             name="exam-name"
             value={title}
             onChange={(e) => setTypedTitle(e.target.value)}
+            placeholder="예: 토익 정기시험, 1학기 중간고사"
           />
         </Field>
         <div className="flex flex-col gap-[14px]">
