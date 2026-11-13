@@ -28,13 +28,21 @@ export const useSettingsStore = create(
         quietTo: '08:00',
       },
       marketingAgreedAt: null,
-      // 자료 분석 AI (POST /materials/{id}/complete 의 model_id · X-AI-Key)
-      // 비어 있으면 .env.local 의 VITE_AI_MODEL_ID · VITE_AI_KEY 를 사용
+      // AI 생성 요청의 model_id (비어 있으면 .env.local 의 VITE_AI_MODEL_ID)
+      // 월 구독(계약 1.4.0): AI 제공자 키는 서버가 관리하므로 앱에 키를 두지 않아요
       aiModelId: null,
-      aiKey: null,
       set: (patch) => set(patch),
       setNotify: (patch) => set((s) => ({ notify: { ...s.notify, ...patch } })),
     }),
-    { name: 'settings' },
+    {
+      name: 'settings',
+      // v1: 예전 버전이 저장해 둔 aiKey 를 브라우저 저장소에서 지워요
+      version: 1,
+      migrate: (persisted) => {
+        // eslint-disable-next-line no-unused-vars
+        const { aiKey, ...rest } = persisted ?? {}
+        return rest
+      },
+    },
   ),
 )
