@@ -34,7 +34,7 @@ const mockQuestion = (i, n) => {
 }
 
 // 풀이 종류 라벨 (09 상단)
-const KIND = { check: '개념 확인', supplement: '보충', advanced: '심화', retry: '오답 다시 풀기' }
+const KIND = { check: '개념 확인 퀴즈', supplement: '보충', advanced: '심화', retry: '오답 다시 풀기' }
 
 const marks = ['①', '②', '③', '④', '⑤', '⑥']
 const LEVEL = { easy: '하', medium: '중', hard: '상' }

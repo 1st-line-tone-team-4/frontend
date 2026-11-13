@@ -125,7 +125,7 @@ export default function QuizCreatePage({ mode = 'basic' }) {
 
   return (
     <Screen
-      header={{ title: advanced ? '심화 문제' : '개념 확인', dday }}
+      header={{ title: advanced ? '심화 문제' : '개념 확인 퀴즈', dday }}
       bottom={
         <Button
           onClick={onCreate}

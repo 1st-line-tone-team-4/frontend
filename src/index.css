@@ -23,7 +23,8 @@
 
 @layer base {
   body {
-    @apply bg-white font-sans text-ink antialiased;
+    /* 넓은 화면에서 430px 앱 영역이 배경과 구분되도록 바깥은 cool 톤 */
+    @apply bg-cool font-sans text-ink antialiased;
   }
 }
 

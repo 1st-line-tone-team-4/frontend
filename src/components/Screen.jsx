@@ -10,19 +10,31 @@ import TabBar from './TabBar'
  */
 export default function Screen({ header, bottom, tabs = false, className = '', children }) {
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-white">
+    <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-white sm:shadow-[0_0_24px_rgba(30,40,66,0.08)]">
       {header && (
         <div className="sticky top-0 z-10 bg-white px-6 pt-2 pb-1">
           {header === 'app' ? <AppHeader /> : <TopBar title={header.title} dday={header.dday} />}
         </div>
       )}
       <main className={`flex flex-1 flex-col gap-4 px-6 pt-4 pb-6 ${className}`}>{children}</main>
-      {bottom && (
-        <div className="sticky bottom-0 z-10 flex flex-col items-center gap-[10px] border-t border-line bg-white px-6 pt-[14px] pb-[max(30px,env(safe-area-inset-bottom))]">
-          {bottom}
+      {bottom && tabs ? (
+        // 탭 화면: 주요 버튼을 하단 탭 바로 위에 함께 고정
+        <div className="sticky bottom-0 z-10">
+          <div className="flex flex-col items-center gap-[10px] border-t border-line bg-white/95 px-6 py-3 backdrop-blur">
+            {bottom}
+          </div>
+          <TabBar />
         </div>
+      ) : (
+        <>
+          {bottom && (
+            <div className="sticky bottom-0 z-10 flex flex-col items-center gap-[10px] border-t border-line bg-white px-6 pt-[14px] pb-[max(30px,env(safe-area-inset-bottom))]">
+              {bottom}
+            </div>
+          )}
+          {tabs && <TabBar />}
+        </>
       )}
-      {tabs && <TabBar />}
     </div>
   )
 }

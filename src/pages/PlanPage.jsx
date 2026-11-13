@@ -28,7 +28,7 @@ const GOAL_STATUS = [
 ]
 
 // 할 일 종류 · 상태 표시 (바텀시트)
-const TASK_LABEL = { solve: '문제 풀기', teach_back: '설명하기', review: '복습하기' }
+const TASK_LABEL = { solve: '개념 확인 퀴즈', teach_back: '설명하기', review: '복습하기' }
 const TASK_STATUS = {
   pending: { label: '대기', tone: 'cool' },
   in_progress: { label: '진행 중', tone: 'primary' },

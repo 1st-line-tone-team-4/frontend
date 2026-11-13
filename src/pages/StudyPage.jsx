@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import iconAlert from '@/assets/icons/alert.svg'
 import { USE_MOCK } from '@/api/client'
@@ -18,6 +19,7 @@ import {
   useToday,
   useUpdatePlanTask,
 } from '@/hooks/useStudyApi'
+import { useConceptReadStore } from '@/stores/useConceptReadStore'
 
 // 더미 (목 모드에서 표시)
 const DUMMY = {
@@ -153,6 +155,13 @@ export default function StudyPage() {
       ? toView(ready, concept, index, concepts.length)
       : null
   const next = concepts[index + 1]
+
+  // 설명이 화면에 뜨면 '학습 완료'로 기록 (오늘 화면 1단계 개념 학습)
+  const markRead = useConceptReadStore((s) => s.markRead)
+  const shownId = view && concept?.concept_version_id
+  useEffect(() => {
+    if (shownId) markRead(shownId)
+  }, [shownId, markRead])
 
   const onCreate = () =>
     create.mutate(

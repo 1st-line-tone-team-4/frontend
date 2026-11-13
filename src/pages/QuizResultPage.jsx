@@ -127,7 +127,7 @@ export default function QuizResultPage() {
 
   return (
     <Screen
-      header={{ title: advanced ? '심화 문제 결과' : '개념 확인 결과', dday }}
+      header={{ title: advanced ? '심화 문제 결과' : '개념 확인 퀴즈 결과', dday }}
       bottom={
         <>
           <Button to="/teach/prepare">약점 설명하러 가기</Button>

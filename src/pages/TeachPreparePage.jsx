@@ -113,7 +113,7 @@ export default function TeachPreparePage() {
     >
       <PageTitle
         title="이번엔 내가 선생님이에요"
-        desc="개념 확인에서 틀린 부분을 AI 학생에게 설명해 주세요."
+        desc="개념 확인 퀴즈에서 틀린 부분을 AI 학생에게 설명해 주세요."
       />
 
       <section className="flex flex-col gap-[10px]">
@@ -160,7 +160,7 @@ export default function TeachPreparePage() {
           “처음 배우는 학생이에요. 쉬운 말로 설명해 주세요.”
         </p>
         <p className="rounded-xl bg-white/70 px-[14px] py-[10px] text-[13px] leading-[1.55] text-sub">
-          질문은 날카롭고 어려워요. 개념 확인에서 틀린 부분을 집중해서 물어봐요.
+          질문은 날카롭고 어려워요. 개념 확인 퀴즈에서 틀린 부분을 집중해서 물어봐요.
         </p>
       </section>
 
