@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { USE_MOCK } from '@/api/client'
+import { waitForJob } from '@/api/jobs'
 import Button from '@/components/Button'
 import { CheckIcon } from '@/components/icons'
+import JobRecovery from '@/components/JobRecovery'
+import { toast } from '@/components/Overlay'
 import Screen, { BottomNote, PageTitle } from '@/components/Screen'
-import { useCompleteTeachback, useDday } from '@/hooks/useStudyApi'
+import { useAbandonSession, useCompleteTeachback, useDday } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 
 const STEPS = ['대화 정리', '확인 항목과 대조', '근거 페이지 찾기']
@@ -17,17 +20,38 @@ export default function TeachAnalyzingPage() {
   const complete = useCompleteTeachback()
   const [step, setStep] = useState(0)
   const [failed, setFailed] = useState(false)
+  const [failedJob, setFailedJob] = useState(null) // 실패한 리포트 job (retry · restart 대상)
+  const abandon = useAbandonSession()
   const started = useRef(false)
+
+  const onFail = (err) => {
+    setFailed(true)
+    setFailedJob(err?.job ?? null)
+  }
 
   const run = () => {
     setFailed(false)
     setStep(0)
     if (USE_MOCK) return
-    complete.mutate(sessionId, {
-      onSuccess: () => setStep(STEPS.length),
-      onError: () => setFailed(true),
-    })
+    complete.mutate(sessionId, { onSuccess: () => setStep(STEPS.length), onError: onFail })
   }
+
+  // 명세: 리포트 job 실패는 같은 세션을 /jobs retry · restart 로 복구해요 (complete 를 다시 부르면 기존 job 이 와요)
+  const onRecovered = (job) => {
+    setFailed(false)
+    setFailedJob(null)
+    setStep(STEPS.length - 1)
+    waitForJob(job)
+      .then(() => setStep(STEPS.length))
+      .catch(onFail)
+  }
+
+  // 리포트 없이 끝난 세션은 중단할 수 있어요 (PATCH status=abandoned · 대화 기록은 남아요)
+  const onAbandon = () =>
+    abandon.mutate(sessionId, {
+      onSuccess: () => navigate('/today', { replace: true }),
+      onError: (err) => toast(err.message),
+    })
 
   useEffect(() => {
     if (started.current) return
@@ -55,7 +79,17 @@ export default function TeachAnalyzingPage() {
       header={{ title: '분석 중', dday }}
       bottom={
         <>
-          {failed && <Button onClick={run}>다시 분석하기</Button>}
+          {failed &&
+            (failedJob ? (
+              <JobRecovery job={failedJob} onRecovered={onRecovered} className="w-full" />
+            ) : (
+              <Button onClick={run}>다시 분석하기</Button>
+            ))}
+          {failed && failedJob && (
+            <Button variant="secondary" onClick={onAbandon} disabled={abandon.isPending}>
+              이번 설명 그만두기
+            </Button>
+          )}
           <Button to="/today" variant="secondary">
             오늘로 돌아가기
           </Button>

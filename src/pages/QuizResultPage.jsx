@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
+import { USE_MOCK } from '@/api/client'
 import Button from '@/components/Button'
 import Chip from '@/components/Chip'
 import { ChevronDownIcon } from '@/components/icons'
-import ReportSheet from '@/components/ReportSheet'
 import Screen, { BottomNote, PageTitle } from '@/components/Screen'
 import SourceChip from '@/components/SourceChip'
-import { CONCEPTS, QUIZ } from '@/data/flow'
-import { useDday } from '@/hooks/useStudyApi'
+import { QUIZ } from '@/data/flow'
+import { useDday, useQuestionAttempts, useQuestionSet, useToday } from '@/hooks/useStudyApi'
 
 const marks = ['①', '②', '③', '④']
 
@@ -29,6 +29,52 @@ const FALLBACK = Array.from({ length: 10 }, (_, i) => {
   }
 })
 
+const LEVEL = { easy: '하', medium: '중', hard: '상' }
+
+// 문제 세트(GET /question-sets/{id})의 최신 채점 결과 → 화면 데이터
+function toAnswers(set, conceptName) {
+  return [...set.items]
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((it) => {
+      const q = it.question
+      const at = it.latest_attempt
+      const result = at?.status === 'graded' ? at.result : null
+      return {
+        questionId: q.id,
+        conceptVersionId: q.concept_version_ids[0],
+        ordinal: it.ordinal,
+        concept: conceptName(q.concept_version_ids[0]),
+        level: LEVEL[q.difficulty],
+        sentence: q.prompt,
+        choices: q.options,
+        answerId: result?.correct_answer.selected_option_ids?.[0],
+        answerText: result?.correct_answer.text,
+        pickedId: at?.answer.selected_option_ids?.[0],
+        myText: at?.answer.text,
+        isCorrect: Boolean(result?.is_correct),
+        explanation: [result?.feedback, result?.explanation].filter(Boolean).join(' '),
+        page: result?.evidence[0]?.page_number,
+      }
+    })
+}
+
+// 문제 하나의 풀이 기록 (GET /questions/{id}/attempts)
+function AttemptHistory({ questionId }) {
+  const attempts = useQuestionAttempts(questionId)
+  const list = attempts.data ?? []
+  if (list.length === 0) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span className="text-[11px] font-bold text-muted">풀이 기록 {list.length}회</span>
+      {list.map((h) => (
+        <Chip key={h.id} tone={h.result?.is_correct ? 'primary' : h.result ? 'error' : 'cool'}>
+          {h.result ? (h.result.is_correct ? 'O' : 'X') : '채점 중'}
+        </Chip>
+      ))}
+    </div>
+  )
+}
+
 // A-04 개념 확인 결과 (A-08 심화 문제 결과도 이 화면)
 export default function QuizResultPage() {
   const dday = useDday()
@@ -36,9 +82,24 @@ export default function QuizResultPage() {
   const [params] = useSearchParams()
   const advanced = params.get('kind') === 'advanced'
   const [openId, setOpenId] = useState(null)
-  const [reportOpen, setReportOpen] = useState(false)
 
-  const answers = (state?.answers ?? FALLBACK).map((a, i) => ({
+  const setQuery = useQuestionSet()
+  const today = useToday()
+  const conceptName = (versionId) =>
+    today.data?.tasks.flatMap((t) => t.concepts).find((c) => c.concept_version_id === versionId)
+      ?.concept_name ?? '개념'
+  const source = USE_MOCK
+    ? (state?.answers ?? FALLBACK)
+    : setQuery.data
+      ? toAnswers(setQuery.data, conceptName)
+      : []
+  // 문제를 푼 다음 단계는 '설명하기' (계획: 문제 풀기 → 설명하기 → 복습하기)
+  // 그래서 개념을 다시 볼 때도 문제를 또 만들지 않고 설명하기로 이어지게 해요 (?from=quiz)
+  const firstWrong = source.find((a) => !a.isCorrect && a.conceptVersionId)
+  const studyLink = firstWrong
+    ? `/study?concept=${firstWrong.conceptVersionId}&from=quiz`
+    : '/study?from=quiz'
+  const answers = source.map((a, i) => ({
     ...a,
     ordinal: a.ordinal ?? i + 1,
   }))
@@ -63,7 +124,6 @@ export default function QuizResultPage() {
       weakMap.set(a.concept, w)
     })
   const weak = [...weakMap.values()].sort((a, b) => b.wrong - a.wrong)
-  const mostWrong = CONCEPTS.find((c) => c.name === weak[0]?.name) ?? CONCEPTS[0]
 
   return (
     <Screen
@@ -71,7 +131,7 @@ export default function QuizResultPage() {
       bottom={
         <>
           <Button to="/teach/prepare">약점 설명하러 가기</Button>
-          <Button to={`/learn?c=${mostWrong.id}`} variant="secondary">
+          <Button to={studyLink} variant="secondary">
             개념 다시 보기
           </Button>
         </>
@@ -155,7 +215,7 @@ export default function QuizResultPage() {
                     <span className="text-xs text-sub">
                       {a.concept} · 난이도 {a.level}
                       {picked >= 0 && ` · 내 답 ${marks[picked]} · 정답 ${marks[right]}`}
-                      {picked < 0 && ' · 풀지 않음'}
+                      {picked < 0 && (a.myText ? ` · 내 답 ${a.myText}` : ' · 풀지 않음')}
                     </span>
                   </span>
                   <ChevronDownIcon
@@ -166,18 +226,16 @@ export default function QuizResultPage() {
                 {open && (
                   <div className="mb-3 flex flex-col gap-2 rounded-xl bg-cool px-4 py-3">
                     <p className="text-[13px] leading-[1.6]">
-                      정답은 {marks[right]} {a.choices?.[right]?.text}. {a.explanation}
+                      정답은{' '}
+                      {right >= 0 ? `${marks[right]} ${a.choices[right].text}` : a.answerText}.{' '}
+                      {a.explanation}
                     </p>
-                    <div className="flex items-center justify-between">
-                      <SourceChip page={a.page} label={`근거 p.${a.page}`} />
-                      <button
-                        type="button"
-                        onClick={() => setReportOpen(true)}
-                        className="text-xs font-bold text-sub underline"
-                      >
-                        문제 신고
-                      </button>
-                    </div>
+                    {a.page && (
+                      <div className="flex items-center justify-between">
+                        <SourceChip page={a.page} label={`근거 p.${a.page}`} />
+                      </div>
+                    )}
+                    {!USE_MOCK && a.questionId && <AttemptHistory questionId={a.questionId} />}
                   </div>
                 )}
               </li>
@@ -186,7 +244,6 @@ export default function QuizResultPage() {
         </ul>
       </section>
       <BottomNote>약점은 문제 하나가 아니라 전체 결과에서 뽑았어요.</BottomNote>
-      <ReportSheet open={reportOpen} kind="question" onClose={() => setReportOpen(false)} />
     </Screen>
   )
 }

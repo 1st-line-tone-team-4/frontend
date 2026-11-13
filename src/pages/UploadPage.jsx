@@ -4,13 +4,11 @@ import iconUpload from '@/assets/icons/upload.svg'
 import Button from '@/components/Button'
 import Chip from '@/components/Chip'
 import { Field, Input } from '@/components/Field'
-import { Modal } from '@/components/Overlay'
 import Screen, { PageTitle } from '@/components/Screen'
 import UploadFileList, { RejectedFiles } from '@/components/UploadFileList'
-import { useStudyStore } from '@/stores/useStudyStore'
 import { useUploadQueueStore } from '@/stores/useUploadQueueStore'
 import { fileBaseName } from '@/utils/format'
-import { ACCEPT } from '@/utils/materialFiles'
+import { ACCEPT, MAX_FILES } from '@/utils/materialFiles'
 
 // 02 자료 업로드
 export default function UploadPage() {
@@ -18,10 +16,8 @@ export default function UploadPage() {
   const fileRef = useRef(null)
   const items = useUploadQueueStore((s) => s.items)
   const { addFiles, startAll, remove, retry } = useUploadQueueStore.getState()
-  const isPro = useStudyStore((s) => s.isPro)
-  const maxFiles = isPro ? 20 : 3
+  const maxFiles = MAX_FILES // 명세: 계획 생성 material_ids 최대 20개
   const [rejected, setRejected] = useState([])
-  const [showProModal, setShowProModal] = useState(false)
   const isCalculating = items.some((it) => it.pagesStatus === 'counting')
   // null 이면 직접 입력 전 → 처음 올린 파일명을 시험 이름으로 사용
   const [typedName, setTypedName] = useState(null)
@@ -31,14 +27,7 @@ export default function UploadPage() {
 
   const selectFiles = (fileList) => {
     if (!fileList?.length) return
-    const files = [...fileList]
-    const available = maxFiles - items.length
-    if (available <= 0) {
-      setShowProModal(true)
-      return
-    }
-    if (files.length > available) setShowProModal(true)
-    setRejected(addFiles(files.slice(0, available)))
+    setRejected(addFiles([...fileList]))
   }
 
   const onDrop = (e) => {
@@ -68,13 +57,7 @@ export default function UploadPage() {
 
       <button
         type="button"
-        onClick={() => {
-          if (items.length >= maxFiles) {
-            setShowProModal(true)
-            return
-          }
-          fileRef.current?.click()
-        }}
+        onClick={() => fileRef.current?.click()}
         onDragOver={(e) => {
           e.preventDefault()
           setDragging(true)
@@ -119,31 +102,6 @@ export default function UploadPage() {
       <Field label="시험 이름" className="mt-6">
         <Input value={examName} onChange={(e) => setTypedName(e.target.value)} />
       </Field>
-
-      <div className="mt-[54px] flex flex-col gap-[10px]">
-        <p className="text-[15px] leading-[1.4] font-bold tracking-[-0.15px]">
-          올릴 파일이 없나요?
-        </p>
-        <p className="text-[13px] leading-[1.5] text-sub">
-          파일 없이도 원하는 강의를 검색하고 선택해 시작할 수 있어요.
-        </p>
-        <Button to="/lectures" variant="secondary">
-          강의 검색하기
-        </Button>
-      </div>
-
-      <Modal
-        open={showProModal}
-        title="파일을 더 추가하려면 Pro가 필요해요"
-        desc={`일반 회원은 파일을 최대 ${maxFiles}개까지 업로드할 수 있어요.\nPro로 업그레이드하면 최대 20개까지 사용할 수 있어요.`}
-        confirmLabel="Pro 안내 보기"
-        cancelLabel="닫기"
-        onClose={() => setShowProModal(false)}
-        onConfirm={() => {
-          setShowProModal(false)
-          navigate('/profile')
-        }}
-      />
     </Screen>
   )
 }

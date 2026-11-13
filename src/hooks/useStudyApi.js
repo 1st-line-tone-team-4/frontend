@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { USE_MOCK, mockResponse } from '@/api/client'
-import { waitForJob } from '@/api/jobs'
+import { listAIModels, resolveModelId } from '@/api/ai'
+import { canRetryJob, getJob, restartJob, retryJob, waitForJob } from '@/api/jobs'
 import * as Api from '@/api/study'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { daysUntil, formatDday } from '@/utils/format'
@@ -50,6 +51,20 @@ export function useCreateExamGoal() {
   })
 }
 
+// 시험 이름 · 날짜 · 상태 수정 (PATCH /exam-goals/{id} · 기존 계획은 그대로, 날짜를 바꾸면 '코스 다시 맞추기')
+export function useUpdateExamGoal() {
+  const setIds = useStudyStore((s) => s.setIds)
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: mockOr(({ id, ...body }) => Api.updateExamGoal(id, body)),
+    onSuccess: (goal, { exam_date }) => {
+      if (exam_date) setIds({ examDate: exam_date })
+      qc.invalidateQueries({ queryKey: ['exam-goals'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+    },
+  })
+}
+
 /* ── 자료 ─────────────────────────────────────── */
 export function useMaterial(materialId) {
   return useQuery({
@@ -73,7 +88,7 @@ export function useUploadMaterial() {
       async (file) => {
         const { material, upload_url } = await Api.createMaterialUpload(file)
         await Api.putFileToSignedUrl(upload_url, file)
-        await Api.completeMaterialUpload(material.id)
+        await Api.completeMaterialUpload(material.id, await resolveModelId())
         return material
       },
       { id: 'mock-material' },
@@ -182,32 +197,67 @@ export function useReschedulePlan() {
   })
 }
 
+// 할 일 건너뛰기 · 되돌리기 · 복습 완료 (PATCH /plan-tasks/{id})
+export function useUpdatePlanTask() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: mockOr(({ taskId, status }) => Api.updatePlanTask(taskId, status)),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['today'] })
+      qc.invalidateQueries({ queryKey: ['plan'] })
+    },
+  })
+}
+
+/* ── 작업(job) ────────────────────────────────── */
+export const useJob = (jobId) =>
+  useQuery({
+    queryKey: ['job', jobId],
+    queryFn: () => getJob(jobId),
+    enabled: live(jobId),
+    refetchInterval: (q) => (['queued', 'running'].includes(q.state.data?.status) ? 2000 : false),
+  })
+
+// 실패한 job 복구 · retry 가능하면 같은 job 재시도, 아니면 restart (호출 전에 중복 실행 동의를 받아요)
+export function useRecoverJob() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ job, modelId }) => {
+      const id = modelId ?? (await resolveModelId())
+      const res = canRetryJob(job) ? await retryJob(job.id, id) : await restartJob(job.id, id)
+      return res?.job ?? res
+    },
+    onSuccess: () => qc.invalidateQueries(),
+  })
+}
+
 /* ── 자습 설명 ────────────────────────────────── */
-// 해당 개념 버전의 최신 설명 · 없으면 생성 요청 후 완료까지 기다려요
+// 해당 개념 버전의 설명 목록 조회만 해요 (명세: 새 설명 생성은 사용자가 요청할 때만)
+// → { ready: 최신 완성 설명, latest: 가장 최근 설명(생성 중 · 실패 포함) }
 export function useLearningExplanation(conceptVersionId, language = 'ko') {
   return useQuery({
     queryKey: ['learning-explanation', conceptVersionId, language],
     queryFn: async () => {
       const { items } = await Api.listLearningExplanations(conceptVersionId)
-      const ready = items.find((x) => x.status === 'ready' && x.explanation_language === language)
-      if (ready) return ready
-      const generating = items.find(
-        (x) => x.status === 'generating' && x.explanation_language === language,
-      )
-      if (generating) {
-        await waitForJob({ id: generating.latest_job_id, status: 'running' })
-        return Api.getLearningExplanation(generating.id)
-      }
-      const { job } = await Api.createLearningExplanation({
-        concept_version_id: conceptVersionId,
-        explanation_language: language,
-      })
-      await waitForJob(job)
-      return Api.getLearningExplanation(job.resource_id)
+      const mine = items.filter((x) => x.explanation_language === language)
+      return { ready: mine.find((x) => x.status === 'ready') ?? null, latest: mine[0] ?? null }
     },
     enabled: live(conceptVersionId),
-    staleTime: Infinity,
-    retry: false,
+    refetchInterval: (q) => (q.state.data?.latest?.status === 'generating' ? 2000 : false),
+  })
+}
+
+// '설명 만들기' 버튼 → POST /learning-explanations (결과는 목록 폴링으로 받아요)
+export function useCreateLearningExplanation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ conceptVersionId, language = 'ko' }) =>
+      Api.createLearningExplanation({
+        concept_version_id: conceptVersionId,
+        explanation_language: language,
+        model_id: await resolveModelId(),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['learning-explanation'] }),
   })
 }
 
@@ -217,8 +267,9 @@ export function useCreateQuestionSet() {
   return useMutation({
     mutationFn: mockOr(async (body) => {
       const { job } = await Api.createQuestionSet({
-        acknowledge_possible_duplicate_cost: false,
+        acknowledge_possible_duplicate_execution: false,
         ...body,
+        model_id: await resolveModelId(),
       })
       await waitForJob(job)
       return job.resource_id
@@ -244,6 +295,7 @@ export function useSubmitAttempt() {
       const { job } = await Api.submitAttempt(questionId, {
         answer,
         question_set_id: questionSetId,
+        model_id: await resolveModelId(),
       })
       await waitForJob(job)
       return Api.getAttempt(job.resource_id)
@@ -285,7 +337,12 @@ export function useSendTeachbackMessage() {
   return useMutation({
     mutationFn: async ({ sessionId, content, isFinal, inputMode = 'text' }) => {
       if (isFinal) return Api.submitFinalTeachbackAnswer(sessionId, content, inputMode)
-      const { job } = await Api.sendTeachbackMessage(sessionId, content, inputMode)
+      const { job } = await Api.sendTeachbackMessage(
+        sessionId,
+        content,
+        inputMode,
+        await resolveModelId(),
+      )
       return waitForJob(job)
     },
     onSettled: () => {
@@ -300,7 +357,7 @@ export function useCompleteTeachback() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: mockOr(async (sessionId) => {
-      const { job } = await Api.completeTeachbackSession(sessionId)
+      const { job } = await Api.completeTeachbackSession(sessionId, await resolveModelId())
       return waitForJob(job)
     }),
     onSuccess: () => {
@@ -311,8 +368,10 @@ export function useCompleteTeachback() {
   })
 }
 
-export function useTeachbackReport() {
-  const sessionId = useStudyStore((s) => s.sessionId)
+// sessionIdOverride: 다른 화면에서 특정 세션 리포트를 볼 때 (없으면 현재 세션)
+export function useTeachbackReport(sessionIdOverride) {
+  const storedId = useStudyStore((s) => s.sessionId)
+  const sessionId = sessionIdOverride ?? storedId
   return useQuery({
     queryKey: ['report', sessionId],
     queryFn: () => Api.getTeachbackReport(sessionId),
@@ -325,10 +384,15 @@ export const useReportFeedback = () =>
     mutationFn: mockOr(({ sessionId, ...body }) => Api.reportTeachbackFeedback(sessionId, body)),
   })
 
-export const useUpdateImprovementAction = () =>
-  useMutation({
-    mutationFn: mockOr(({ actionId, status }) => Api.updateImprovementAction(actionId, { status })),
+export function useUpdateImprovementAction() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: mockOr(({ actionId, status, followupSessionId = null }) =>
+      Api.updateImprovementAction(actionId, { status, followup_session_id: followupSessionId }),
+    ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['actions'] }),
   })
+}
 
 /* ── 기록 ─────────────────────────────────────── */
 export const useWeaknesses = () =>
@@ -344,3 +408,57 @@ export const useSessionRecords = () =>
     queryFn: () => Api.listSessionRecords().then((r) => r.items),
     enabled: live(true),
   })
+
+/* ── 추가 조회 ────────────────────────────────── */
+export const useBilling = () =>
+  useQuery({ queryKey: ['billing'], queryFn: Api.getBillingCapabilities, enabled: live(true) })
+
+export const useAIModels = () =>
+  useQuery({ queryKey: ['ai-models'], queryFn: listAIModels, enabled: live(true) })
+
+export const useImprovementActions = () =>
+  useQuery({
+    queryKey: ['actions'],
+    queryFn: () => Api.listImprovementActions({ limit: 20 }).then((r) => r.items),
+    enabled: live(true),
+  })
+
+export const useQuestionSets = (taskId) =>
+  useQuery({
+    queryKey: ['question-sets', taskId ?? null],
+    queryFn: () =>
+      Api.listQuestionSets({ limit: 10, ...(taskId && { task_id: taskId }) }).then((r) => r.items),
+    enabled: live(true),
+  })
+
+export const useQuestionAttempts = (questionId, enabled = true) =>
+  useQuery({
+    queryKey: ['question-attempts', questionId],
+    queryFn: () => Api.listQuestionAttempts(questionId, { limit: 20 }).then((r) => r.items),
+    enabled: live(questionId) && enabled,
+  })
+
+export const useMaterialChunk = (materialId, chunkId) =>
+  useQuery({
+    queryKey: ['chunk', materialId, chunkId],
+    queryFn: () => Api.getMaterialChunk(materialId, chunkId),
+    enabled: live(materialId, chunkId),
+  })
+
+export const useConceptVersions = (materialId, conceptId, enabled = true) =>
+  useQuery({
+    queryKey: ['concept-versions', materialId, conceptId],
+    queryFn: () => Api.listConceptVersions(materialId, conceptId),
+    enabled: live(materialId, conceptId) && enabled,
+  })
+
+export function useAbandonSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: mockOr(Api.abandonTeachbackSession),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['session'] })
+      qc.invalidateQueries({ queryKey: ['session-records'] })
+    },
+  })
+}

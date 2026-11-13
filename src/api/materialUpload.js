@@ -1,8 +1,8 @@
 import axios from 'axios'
 import { api, unwrap, USE_MOCK, mockResponse, newIdempotencyKey } from './client'
-import { getJob, retryJob } from './jobs'
+import { getJob, restartJob, retryJob } from './jobs'
 import { getMaterial } from './study'
-import { useSettingsStore } from '@/stores/useSettingsStore'
+import { resolveModelId } from './ai'
 
 /**
  * 자료 여러 개 업로드용 API (파일 1개 기준 단계별 함수)
@@ -54,15 +54,6 @@ function parseRetryAfter(value) {
 
 const isExpired = (expiresAt) =>
   Boolean(expiresAt) && Date.now() >= new Date(expiresAt).getTime() - EXPIRY_MARGIN_MS
-
-// 설정 → 환경 변수 순서로 분석 모델 · AI 키 사용
-function aiConfig() {
-  const { aiModelId, aiKey } = useSettingsStore.getState()
-  return {
-    modelId: aiModelId || import.meta.env.VITE_AI_MODEL_ID || undefined,
-    aiKey: aiKey || import.meta.env.VITE_AI_KEY || undefined,
-  }
-}
 
 // 202 Accepted 본문 → job
 const toJob = (data) => data?.job ?? data
@@ -120,22 +111,35 @@ export const putMaterialFile = (url, file, mimeType, { signal }) =>
 
 export const completeMaterial = (material, { idempotencyKey, signal }) => {
   if (USE_MOCK) return mock.complete(material.id, material.filename)
-  const { modelId, aiKey } = aiConfig()
-  return api
-    .post(
-      `/materials/${material.id}/complete`,
-      { model_id: modelId },
-      {
-        headers: { 'Idempotency-Key': idempotencyKey, ...(aiKey && { 'X-AI-Key': aiKey }) },
-        signal,
-      },
-    )
+  // AI 키는 서버에서 관리해요 (명세: 클라이언트 요청에 포함하지 않음) · model_id 는 GET /ai/models 기준
+  return resolveModelId()
+    .then((modelId) => {
+      modelIds.set(material.id, modelId)
+      return api.post(
+        `/materials/${material.id}/complete`,
+        { model_id: modelId },
+        { headers: { 'Idempotency-Key': idempotencyKey }, signal },
+      )
+    })
     .then(unwrap)
     .then(toJob)
 }
 
-export const retryMaterialJob = (jobId, { signal }) =>
-  USE_MOCK ? mock.retry(jobId) : retryJob(jobId, { signal }).then(toJob)
+// 재시도는 처음 분석에 쓴 모델과 같아야 해요
+const modelIds = new Map()
+
+export const retryMaterialJob = async (jobId, { signal, materialId } = {}) => {
+  if (USE_MOCK) return mock.retry(jobId)
+  const modelId = modelIds.get(materialId) ?? (await resolveModelId())
+  return retryJob(jobId, modelId, { signal }).then(toJob)
+}
+
+// 재시도 불가 실패 · 결과 불명 → 새 job 으로 다시 실행 (중복 실행 동의 포함)
+export const restartMaterialJob = async (jobId, { signal, materialId } = {}) => {
+  if (USE_MOCK) return mock.retry(jobId)
+  const modelId = modelIds.get(materialId) ?? (await resolveModelId())
+  return restartJob(jobId, modelId, { signal }).then(toJob)
+}
 
 const fetchJob = (jobId, signal) => (USE_MOCK ? mock.getJob(jobId) : getJob(jobId, { signal }))
 

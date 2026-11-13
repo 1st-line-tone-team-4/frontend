@@ -8,7 +8,6 @@ import Button from '@/components/Button'
 import Card from '@/components/Card'
 import Chip from '@/components/Chip'
 import { Input } from '@/components/Field'
-import ReportSheet from '@/components/ReportSheet'
 import Screen, { PageTitle } from '@/components/Screen'
 import SourceChip from '@/components/SourceChip'
 import { QUIZ } from '@/data/flow'
@@ -76,7 +75,6 @@ export default function QuizSolvePage() {
   const mockTotal = Math.min(20, Math.max(5, Number(params.get('n')) || 10))
   const [mockIndex, setMockIndex] = useState(0)
   const [mockAnswers, setMockAnswers] = useState({}) // index → 고른 보기 id
-  const [reportOpen, setReportOpen] = useState(false)
   const dday = useDday()
   const setQuery = useQuestionSet()
   const submit = useSubmitAttempt()
@@ -264,17 +262,6 @@ export default function QuizSolvePage() {
         </div>
       )}
 
-      <p className="flex items-center justify-center gap-[6px] text-xs leading-[1.3]">
-        <span className="text-muted">문제에 오류가 있나요?</span>
-        <button
-          type="button"
-          onClick={() => setReportOpen(true)}
-          className="font-bold text-sub underline"
-        >
-          문제 신고
-        </button>
-      </p>
-      <ReportSheet open={reportOpen} kind="question" onClose={() => setReportOpen(false)} />
     </Screen>
   )
 }

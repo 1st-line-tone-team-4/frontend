@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import iconRightWhite from '@/assets/icons/right-white.svg'
 import iconCheck from '@/assets/icons/check-primary-14.svg'
@@ -10,8 +9,10 @@ import ApiState from '@/components/ApiState'
 import Button from '@/components/Button'
 import { Divider } from '@/components/Card'
 import Chip from '@/components/Chip'
+import { toast } from '@/components/Overlay'
 import Screen from '@/components/Screen'
-import { useDday, useToday, useWeaknesses } from '@/hooks/useStudyApi'
+import { useDday, useToday, useUpdatePlanTask, useWeaknesses } from '@/hooks/useStudyApi'
+import { useProfileStore } from '@/stores/useProfileStore'
 import { toPercent } from '@/utils/format'
 
 // 더미 (목 모드에서 표시)
@@ -31,7 +32,7 @@ const DUMMY = {
       title: '개념 설명',
       desc: '현재완료의 형태 · since와 for',
       status: 'done',
-      to: '/learn',
+      to: '/study',
     },
     {
       id: 's1',
@@ -59,7 +60,7 @@ const DUMMY = {
 }
 
 const TASK_LABEL = { solve: '개념 확인', teach_back: '약점 설명', review: '보완' }
-const TASK_LINK = { solve: '/quiz', teach_back: '/teach/prepare', review: '/report' }
+const TASK_LINK = { solve: '/quiz', teach_back: '/teach/prepare', review: '/study' }
 
 // API(/today + /records/weaknesses) → 화면 데이터
 function toView(today, weaknesses = []) {
@@ -92,8 +93,21 @@ function toView(today, weaknesses = []) {
         t.task_type === 'solve'
           ? `${t.target_count}문제 중 ${t.completed_count}문제 완료`
           : t.title,
-      status: t.status === 'completed' ? 'done' : i === currentIdx ? 'current' : 'waiting',
-      to: `${TASK_LINK[t.task_type]}?task=${t.id}`,
+      status:
+        t.status === 'completed'
+          ? 'done'
+          : t.status === 'skipped'
+            ? 'skipped'
+            : i === currentIdx
+              ? 'current'
+              : 'waiting',
+      // 복습은 개념 설명을 다시 읽고 '복습 완료'로 직접 완료해요
+      to:
+        t.task_type === 'review'
+          ? `/study?concept=${t.concept_version_ids[0]}&task=${t.id}`
+          : `${TASK_LINK[t.task_type]}?task=${t.id}`,
+      taskId: t.id,
+      canUndo: t.status === 'skipped' || (t.task_type === 'review' && t.status === 'completed'),
     })),
     weakLink:
       topWeak && topWeak.incorrect_attempts > 0
@@ -105,6 +119,23 @@ function toView(today, weaknesses = []) {
 function StepRow({ step, index }) {
   const done = step.status === 'done'
   const current = step.status === 'current'
+  const skipped = step.status === 'skipped'
+  const update = useUpdatePlanTask()
+  // 실제 API 할 일만 건너뛰기 · 되돌리기 (목 모드 더미에는 taskId 가 없어요)
+  const action = !step.taskId
+    ? null
+    : step.canUndo
+      ? { label: '되돌리기', status: 'pending' }
+      : !done && !skipped
+        ? { label: '건너뛰기', status: 'skipped' }
+        : null
+  const onAction = (e) => {
+    e.preventDefault()
+    update.mutate(
+      { taskId: step.taskId, status: action.status },
+      { onError: (err) => toast(err.message) },
+    )
+  }
   return (
     <Link to={step.to} className="flex items-center gap-[14px] py-[11px]">
       <span
@@ -120,7 +151,7 @@ function StepRow({ step, index }) {
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-[1.4]">
         <span
-          className={`text-[15px] tracking-[-0.15px] ${step.status === 'waiting' ? 'font-medium text-sub' : 'font-bold'}`}
+          className={`text-[15px] tracking-[-0.15px] ${step.status === 'waiting' || skipped ? 'font-medium text-sub' : 'font-bold'}`}
         >
           {step.title}
         </span>
@@ -131,82 +162,32 @@ function StepRow({ step, index }) {
         </span>
       </span>
       <span
-        className={`text-xs leading-[1.3] font-bold ${step.status === 'waiting' ? 'text-muted' : 'text-primary'}`}
+        className={`text-xs leading-[1.3] font-bold ${step.status === 'waiting' || skipped ? 'text-muted' : 'text-primary'}`}
       >
-        {done ? '완료' : current ? '진행 중' : '대기'}
+        {done ? '완료' : skipped ? '건너뜀' : current ? '진행 중' : '대기'}
       </span>
+      {action && (
+        <button
+          type="button"
+          onClick={onAction}
+          disabled={update.isPending}
+          className="text-xs leading-[1.3] font-bold text-sub underline"
+        >
+          {action.label}
+        </button>
+      )}
       {current && <img src={iconRight} alt="" className="size-4" />}
     </Link>
   )
 }
 
-// 상황별 카드 (오늘의 단원 카드 자리) · 시안에서는 아래 칩으로 바꿔 볼 수 있어요
-const SITUATIONS = {
-  normal: '평소',
-  lastDay: '마지막 학습일',
-  afterMock: '모의고사 후',
-  afterExam: '시험 후',
-}
-
-function SituationCard({ kind }) {
-  if (kind === 'lastDay')
-    return (
-      <Link
-        to="/mock"
-        className="flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(158deg,#4e68b0_0%,var(--color-logo-navy)_74%)] px-5 py-4 text-white"
-      >
-        <span className="text-xs font-bold text-white/85">마지막 학습일 · 실전 점검</span>
-        <span className="text-[19px] font-bold tracking-[-0.38px]">모의고사 풀기</span>
-        <span className="text-[13px] text-white/82">강의자료 전체 · 20문제 · 30분</span>
-      </Link>
-    )
-  if (kind === 'afterMock')
-    return (
-      <Link
-        to="/bank"
-        className="flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(145deg,#5f8ff5_0%,var(--color-secondary)_74%)] px-5 py-4 text-white"
-      >
-        <span className="text-xs font-bold text-white/85">모의고사 14 / 20</span>
-        <span className="text-[19px] font-bold tracking-[-0.38px]">비슷한 문제 더 풀기</span>
-        <span className="text-[13px] text-white/82">약한 개념 · 과거 시점 부사, since와 for</span>
-      </Link>
-    )
-  // A-14 시험 후 안내
-  return (
-    <div className="flex flex-col gap-3 rounded-[18px] border border-line bg-[linear-gradient(159deg,var(--color-primary-soft)_0%,var(--color-secondary-soft)_74%)] px-5 py-[18px]">
-      <p className="text-[19px] font-bold tracking-[-0.38px]">토익 정기시험, 수고했어요!</p>
-      <p className="text-[13px] leading-[1.55] text-sub">
-        점수가 나오면 인증해 주세요. 내가 푼 공개 문제에 인증 표시가 붙어요.
-      </p>
-      <div className="grid grid-cols-3 gap-2 rounded-xl bg-white/70 py-3 text-center">
-        {[
-          ['8개', '배운 개념'],
-          ['6회', '마친 설명'],
-          ['58→83%', '설명률'],
-        ].map(([v, k]) => (
-          <span key={k} className="flex flex-col">
-            <span className="text-sm font-bold">{v}</span>
-            <span className="text-[11px] text-sub">{k}</span>
-          </span>
-        ))}
-      </div>
-      <Button to="/records/verify" className="h-12 text-[15px]">
-        점수 인증하기
-      </Button>
-      <div className="flex justify-between text-[13px] font-bold text-sub">
-        <button type="button">나중에 할게요</button>
-        <Link to="/upload">다음 시험 준비하기 →</Link>
-      </div>
-    </div>
-  )
-}
-
 // 05 오늘
 export default function TodayPage() {
-  const [situation, setSituation] = useState('normal')
   const today = useToday()
   const weaknesses = useWeaknesses()
   const dday = useDday()
+  const name = useProfileStore((state) => state.name)
+  const displayName = name === '선생님' ? '선생님' : `${name}님`
 
   const view = USE_MOCK
     ? DUMMY
@@ -234,68 +215,45 @@ export default function TodayPage() {
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <p className="text-sm leading-[1.4] font-medium tracking-[-0.14px] text-sub">
-            선생님, 오늘도 가르쳐 볼까요?
+            {displayName}, 오늘도 가르쳐 볼까요?
           </p>
-          {dday && (
-            <Chip className="text-[13px]">{situation === 'afterExam' ? '시험 종료' : dday}</Chip>
-          )}
+          {dday && <Chip className="text-[13px]">{dday}</Chip>}
         </div>
         <h1 className="text-[26px] leading-[1.3] font-bold tracking-[-0.78px]">
           오늘도, 내 말로 한 걸음
         </h1>
       </div>
 
-      {USE_MOCK && (
-        <div className="mt-4 flex gap-1 overflow-x-auto" aria-label="시안 상황 미리보기">
-          {Object.entries(SITUATIONS).map(([k, v]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setSituation(k)}
-              className={`shrink-0 rounded-full px-[10px] py-1 text-[11px] font-bold ${situation === k ? 'bg-ink text-white' : 'bg-cool text-muted'}`}
-            >
-              {v}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {situation !== 'normal' ? (
-        <div className="mt-3">
-          <SituationCard kind={situation} />
-        </div>
-      ) : (
-        /* 오늘의 단원 (그라데이션/오늘) */
-        <Link
-          to="/unit"
-          className="mt-[23px] flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(144deg,var(--color-logo-blue)_0%,var(--color-primary)_74%)] px-5 py-4 text-white"
-        >
-          <span className="flex items-center justify-between">
-            <span className="text-xs leading-[1.3] font-bold tracking-[-0.12px] text-white/85">
-              {view.unitLabel}
-            </span>
-            <img src={iconRightWhite} alt="" className="size-[18px]" />
+      {/* 오늘의 단원 (그라데이션/오늘) */}
+      <Link
+        to="/study"
+        className="mt-[23px] flex flex-col gap-1 rounded-[18px] bg-[linear-gradient(144deg,var(--color-logo-blue)_0%,var(--color-primary)_74%)] px-5 py-4 text-white"
+      >
+        <span className="flex items-center justify-between">
+          <span className="text-xs leading-[1.3] font-bold tracking-[-0.12px] text-white/85">
+            {view.unitLabel}
           </span>
-          <span className="text-[19px] leading-[1.35] font-bold tracking-[-0.38px]">
-            {view.unitTitle}
+          <img src={iconRightWhite} alt="" className="size-[18px]" />
+        </span>
+        <span className="text-[19px] leading-[1.35] font-bold tracking-[-0.38px]">
+          {view.unitTitle}
+        </span>
+        <span className="text-[13px] leading-[1.4] tracking-[-0.13px] text-white/82">
+          {view.unitMeta}
+        </span>
+        <span className="flex justify-between pt-3 text-xs leading-[1.3] tracking-[-0.12px]">
+          <span className="font-medium text-white/85">
+            오늘 학습 {doneCount} / {view.steps.length} 단계
           </span>
-          <span className="text-[13px] leading-[1.4] tracking-[-0.13px] text-white/82">
-            {view.unitMeta}
-          </span>
-          <span className="flex justify-between pt-3 text-xs leading-[1.3] tracking-[-0.12px]">
-            <span className="font-medium text-white/85">
-              오늘 학습 {doneCount} / {view.steps.length} 단계
-            </span>
-            <span className="font-bold">{view.progress}%</span>
-          </span>
-          <span className="mt-[6px] h-1 overflow-hidden rounded-full bg-white/30">
-            <span
-              className="block h-full rounded-full bg-white"
-              style={{ width: `${view.progress}%` }}
-            />
-          </span>
-        </Link>
-      )}
+          <span className="font-bold">{view.progress}%</span>
+        </span>
+        <span className="mt-[6px] h-1 overflow-hidden rounded-full bg-white/30">
+          <span
+            className="block h-full rounded-full bg-white"
+            style={{ width: `${view.progress}%` }}
+          />
+        </span>
+      </Link>
 
       {/* 학습 지표 */}
       <div className="mt-4 flex items-center pb-4">

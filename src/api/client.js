@@ -5,9 +5,13 @@ import { useAuthStore } from '@/stores/useAuthStore'
 // 백엔드 배포 후에는 false 로 바꾸면 실제 API 데이터가 보여요
 export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 
-// 모든 API 요청은 이 인스턴스로 보내요 (baseURL 에 /v1 포함)
+// 명세 servers 는 /v1 · 환경 변수에 /v1 이 빠져 있으면 붙여요
+const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+export const API_BASE_URL = /\/v1$/.test(base) ? base : `${base}/v1`
+
+// 모든 API 요청은 이 인스턴스로 보내요
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
+  baseURL: API_BASE_URL,
   timeout: 15000,
 })
 

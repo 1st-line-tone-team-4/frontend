@@ -2,12 +2,17 @@ import { Link } from 'react-router-dom'
 import iconRight from '@/assets/icons/right-primary.svg'
 import iconDot from '@/assets/icons/dot-secondary.svg'
 import iconRightMuted from '@/assets/icons/right-muted-16.svg'
-import iconAward from '@/assets/icons/award-muted.svg'
 import { USE_MOCK } from '@/api/client'
 import { Divider } from '@/components/Card'
 import Chip from '@/components/Chip'
+import { toast } from '@/components/Overlay'
 import Screen from '@/components/Screen'
-import { useSessionRecords, useWeaknesses } from '@/hooks/useStudyApi'
+import {
+  useImprovementActions,
+  useSessionRecords,
+  useUpdateImprovementAction,
+  useWeaknesses,
+} from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { toPercent } from '@/utils/format'
 
@@ -43,6 +48,7 @@ const SESSION_STATUS = {
 function toWeak(weaknesses) {
   return weaknesses.map((w) => ({
     id: w.concept_id,
+    to: `/study?concept=${w.concept_version_id}`,
     title: w.concept_name,
     desc: [
       w.latest_coverage !== null && `설명률 ${toPercent(w.latest_coverage)}%`,
@@ -71,11 +77,17 @@ function toRecent(session, weaknesses = []) {
   }
 }
 
+// 개선 할 일 상태는 누를 때마다 아직 → 해 봤어요 → 했어요 순서로 바뀌어요
+const ACTION_LABEL = { pending: '아직', attempted: '해 봤어요', completed: '했어요' }
+const NEXT_ACTION_STATUS = { pending: 'attempted', attempted: 'completed', completed: 'pending' }
+
 // 15 기록
 export default function RecordsPage() {
   const setIds = useStudyStore((s) => s.setIds)
   const weaknesses = useWeaknesses()
   const sessions = useSessionRecords()
+  const actions = useImprovementActions()
+  const updateAction = useUpdateImprovementAction()
 
   const weak = USE_MOCK ? DUMMY_WEAK : toWeak(weaknesses.data ?? [])
   const recent = USE_MOCK ? DUMMY_RECENT : toRecent(sessions.data?.[0], weaknesses.data)
@@ -186,7 +198,7 @@ export default function RecordsPage() {
         <ul>
           {weak.map((w) => (
             <li key={w.id}>
-              <Link to="/unit" className="flex items-center gap-[10px] py-3">
+              <Link to={w.to ?? '/study'} className="flex items-center gap-[10px] py-3">
                 <img src={iconDot} alt="" className="size-[6px]" />
                 <span className="flex flex-1 flex-col leading-[1.4]">
                   <span className="text-sm font-bold">{w.title}</span>
@@ -199,21 +211,47 @@ export default function RecordsPage() {
         </ul>
       </section>
 
-      <Link
-        to="/records/verify"
-        className="flex items-center gap-3 rounded-[14px] bg-cool px-4 py-[14px]"
-      >
-        <img src={iconAward} alt="" className="size-5" />
-        <span className="flex flex-1 flex-col gap-[2px]">
-          <span className="flex items-center gap-[6px]">
-            <span className="text-sm leading-[1.4] font-bold">점수 인증하기</span>
-            <Chip tone="primary">시험 종료</Chip>
-          </span>
-          <span className="text-xs leading-[1.4] text-sub">
-            성적표를 올리면 검수 후 인증 표시가 붙어요.
-          </span>
-        </span>
-      </Link>
+      {/* 리포트에서 받은 개선 할 일 (GET /records/actions · 상태는 직접 표시) */}
+      {!USE_MOCK && (
+        <section>
+          <h2 className="text-base leading-[1.4] font-bold tracking-[-0.16px]">다음에 할 일</h2>
+          {(actions.data ?? []).length === 0 ? (
+            <p className="py-3 text-[13px] leading-[1.5] text-sub">
+              {actions.isLoading ? '불러오는 중이에요…' : '리포트에서 받은 할 일이 없어요.'}
+            </p>
+          ) : (
+            <ul>
+              {actions.data.map((a) => (
+                <li key={a.id} className="flex items-center gap-[10px] py-3">
+                  <span
+                    className={`flex-1 text-sm leading-[1.4] ${a.status === 'completed' ? 'text-sub line-through' : 'font-medium'}`}
+                  >
+                    {a.text}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={updateAction.isPending}
+                    onClick={() =>
+                      updateAction.mutate(
+                        {
+                          actionId: a.id,
+                          status: NEXT_ACTION_STATUS[a.status],
+                          followupSessionId: a.followup_session_id,
+                        },
+                        { onError: (err) => toast(err.message) },
+                      )
+                    }
+                  >
+                    <Chip tone={a.status === 'completed' ? 'primary' : 'cool'}>
+                      {ACTION_LABEL[a.status]}
+                    </Chip>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </Screen>
   )
 }

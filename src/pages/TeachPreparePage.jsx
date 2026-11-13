@@ -42,9 +42,13 @@ export default function TeachPreparePage() {
   const today = useToday()
   const create = useCreateTeachbackSession()
 
-  const initial = USE_MOCK
-    ? WEAKNESSES.map((w) => ({ name: w.name, wrong: w.wrong, versionId: w.id }))
-    : toConcepts(weaknesses.data, today.data?.tasks)
+  // ?concept=버전ID 로 오면(문제 결과 → 개념 다시 보기 → 설명하기) 그 개념을 맨 앞에 둬요
+  const focus = params.get('concept')
+  const initial = (
+    USE_MOCK
+      ? WEAKNESSES.map((w) => ({ name: w.name, wrong: w.wrong, versionId: w.id }))
+      : toConcepts(weaknesses.data, today.data?.tasks)
+  ).sort((a, b) => (b.versionId === focus) - (a.versionId === focus))
   const [removed, setRemoved] = useState([])
   const [askMic, setAskMic] = useState(false)
   const [checking, setChecking] = useState(false)

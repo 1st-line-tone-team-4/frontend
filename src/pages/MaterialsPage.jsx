@@ -16,6 +16,7 @@ import Source from '@/components/Source'
 import {
   useArchiveMaterial,
   useConcepts,
+  useConceptVersions,
   useDday,
   useDeleteMaterial,
   useExamGoals,
@@ -71,7 +72,8 @@ function toView(material, materialCount, goal, units = [], concepts = []) {
   const unitCards = [...units]
     .sort((a, b) => a.ordinal - b.ordinal)
     .map((u) => {
-      const list = concepts.filter((c) => c.unit_id === u.id).map((c) => c.current_version)
+      const unitConcepts = concepts.filter((c) => c.unit_id === u.id)
+      const list = unitConcepts.map((c) => c.current_version)
       if (list.length === 0) return null
       const checklist = list.flatMap((v) => v.checklist_items.map((k) => k.criterion))
       const names = list.map((v) => v.name)
@@ -83,6 +85,7 @@ function toView(material, materialCount, goal, units = [], concepts = []) {
         pages: pageRange(list.flatMap((v) => v.evidence)),
         checklist: checklist.slice(0, 3),
         more: checklist.length > 3 ? `확인 항목 ${checklist.length}개 모두 보기` : null,
+        conceptRefs: unitConcepts.map((c) => ({ id: c.concept_id, name: c.current_version.name })),
       }
     })
     .filter(Boolean)
@@ -300,6 +303,9 @@ export default function MaterialsPage() {
               <img src={iconRight} alt="" className="size-[14px]" />
             </Link>
           )}
+          {!USE_MOCK && c.conceptRefs?.length > 0 && (
+            <VersionHistory materialId={material.id} concepts={c.conceptRefs} />
+          )}
         </Card>
       ))}
 
@@ -309,5 +315,41 @@ export default function MaterialsPage() {
       </p>
       <Button to="/upload">자료 추가하기</Button>
     </Screen>
+  )
+}
+
+// 개념 버전 기록 (GET /materials/{id}/concepts/{conceptId}/versions)
+function VersionHistory({ materialId, concepts }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="self-start text-[13px] leading-[1.4] font-bold text-sub underline"
+      >
+        {open ? '버전 기록 접기' : '개념 버전 기록 보기'}
+      </button>
+      {open &&
+        concepts.map((c) => <ConceptVersions key={c.id} materialId={materialId} concept={c} />)}
+    </div>
+  )
+}
+
+function ConceptVersions({ materialId, concept }) {
+  const versions = useConceptVersions(materialId, concept.id)
+  const list = [...(versions.data ?? [])].sort((a, b) => b.version_no - a.version_no)
+  return (
+    <div className="flex flex-col gap-1 rounded-[14px] bg-cool px-4 py-3">
+      <p className="text-[13px] leading-[1.4] font-bold">{concept.name}</p>
+      {versions.isLoading && <p className="text-xs text-muted">불러오는 중이에요…</p>}
+      {list.map((v) => (
+        <p key={v.id} className="flex items-center gap-2 text-xs leading-[1.4] text-sub">
+          <span className="font-bold text-ink">v{v.version_no}</span>
+          <span className="flex-1 truncate">{v.name}</span>
+          <span>{v.is_confirmed ? '확정' : '초안'}</span>
+        </p>
+      ))}
+    </div>
   )
 }

@@ -3,7 +3,25 @@ import { api, unwrap } from './client'
 // 비동기 작업(AI 분석·생성·채점·리포트) 상태
 // config: axios 옵션 (예: { signal } 로 요청 취소)
 export const getJob = (jobId, config) => api.get(`/jobs/${jobId}`, config).then(unwrap)
-export const retryJob = (jobId, config) => api.post(`/jobs/${jobId}/retry`, {}, config).then(unwrap)
+// 같은 모델로만 재시도 가능 (model_id 필수)
+export const retryJob = (jobId, modelId, config) =>
+  api.post(`/jobs/${jobId}/retry`, { model_id: modelId }, config).then(unwrap)
+
+// 재시도 불가 실패(또는 3회 소진) · outcome_unknown 복구 → 새 job (중복 실행 가능성에 동의 필요)
+export const restartJob = (jobId, modelId, config) =>
+  api
+    .post(
+      `/jobs/${jobId}/restart`,
+      { model_id: modelId, acknowledge_possible_duplicate_execution: true },
+      config,
+    )
+    .then(unwrap)
+
+// failed + retryable + attempt_no < 3 이면 retry, 그 외 failed · outcome_unknown 은 restart
+export const canRetryJob = (job) =>
+  job?.status === 'failed' && job.retryable === true && (job.attempt_no ?? 1) < 3
+export const canRestartJob = (job) =>
+  job?.status === 'outcome_unknown' || (job?.status === 'failed' && !canRetryJob(job))
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 

@@ -34,6 +34,7 @@ import {
   useRecorder,
 } from '@/hooks/useSpeech'
 import {
+  useAbandonSession,
   useDday,
   useSendTeachbackMessage,
   useTeachbackMessages,
@@ -53,9 +54,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 let seq = 0
 const uid = () => `m${Date.now()}-${seq++}`
 
+// 저장된 목 대화 · 모양이 다르면(예전 버전 등) 버려요
 function loadSaved() {
   try {
-    return JSON.parse(sessionStorage.getItem(STORE_KEY)) ?? null
+    const saved = JSON.parse(sessionStorage.getItem(STORE_KEY))
+    return Array.isArray(saved?.messages) && saved.ai ? saved : null
   } catch {
     return null
   }
@@ -69,7 +72,7 @@ function toBubbles(messages = []) {
     .map((m) => {
       if (m.role === 'user') {
         userSeen = true
-        return { id: m.id, from: 'me', text: m.content, voice: m.input_mode === 'voice' }
+        return { id: m.id, from: 'me', text: m.content, voice: m.input_mode === 'voice_transcript' }
       }
       return {
         id: m.id,
@@ -92,6 +95,7 @@ export default function TeachChatPage() {
   const session = useTeachbackSession()
   const messagesQuery = useTeachbackMessages()
   const send = useSendTeachbackMessage()
+  const abandon = useAbandonSession() // PATCH /teachback-sessions/{id} status=abandoned
   const { ttsEnabled, ttsRate, set: setSettings } = useSettingsStore()
 
   const concept = USE_MOCK ? '현재완료' : (state?.conceptName ?? '')
@@ -99,7 +103,9 @@ export default function TeachChatPage() {
 
   // ── 대화 상태 (목 모드는 이 화면에서 직접, 실제 모드는 서버 메시지) ──
   const [mock, setMock] = useState(() => {
-    const saved = !isRetry && loadSaved()
+    // 재설명(?retry=1)이면 저장된 대화를 쓰지 않고 새로 시작해요
+    // (예전엔 `!isRetry && loadSaved()` 가 false 를 돌려줘서 `?? 기본값` 이 적용되지 않았어요)
+    const saved = isRetry ? null : loadSaved()
     return (
       saved ?? {
         messages: [
@@ -141,7 +147,8 @@ export default function TeachChatPage() {
     },
   })
 
-  const messages = USE_MOCK ? mock.messages : toBubbles(messagesQuery.data)
+  // 메시지가 아직 없거나 응답이 비어도 빈 배열로 (API 는 unwrapList 로 { data } → items 를 꺼내요)
+  const messages = (USE_MOCK ? mock?.messages : toBubbles(messagesQuery.data ?? [])) ?? []
   const questionCount = messages.filter((m) => m.kind === 'question').length
   const last = messages[messages.length - 1]
   const status = USE_MOCK ? 'active' : session.data?.status
@@ -240,7 +247,7 @@ export default function TeachChatPage() {
         sessionId,
         content: text,
         isFinal: (session.data?.question_count ?? 0) >= BACKEND_MAX_QUESTIONS,
-        inputMode: voice ? 'voice' : 'text',
+        inputMode: voice ? 'voice_transcript' : 'text',
       })
       const { data } = await messagesQuery.refetch()
       const sorted = [...(data ?? [])].sort((a, b) => a.sequence_no - b.sequence_no)
@@ -599,6 +606,16 @@ export default function TeachChatPage() {
         >
           설명 마치기
         </Button>
+        {!USE_MOCK && (
+          <button
+            type="button"
+            onClick={() => setModal('abandon')}
+            disabled={busy}
+            className="mt-2 w-full text-center text-xs font-bold text-muted underline disabled:opacity-40"
+          >
+            이번 설명 중단하기
+          </button>
+        )}
       </div>
 
       {voiceOpen && (
@@ -626,6 +643,26 @@ export default function TeachChatPage() {
         confirmLabel="설명 마치기"
         cancelLabel="계속 설명하기"
         onConfirm={finish}
+        onClose={() => setModal(null)}
+      />
+      <Modal
+        open={modal === 'abandon'}
+        title="이번 설명을 중단할까요?"
+        desc="대화 기록은 남지만 리포트는 만들지 않아요."
+        confirmLabel="중단하기"
+        danger
+        onConfirm={() =>
+          abandon.mutate(sessionId, {
+            onSuccess: () => {
+              stopSpeaking()
+              navigate('/today')
+            },
+            onError: (err) => {
+              setModal(null)
+              toast(err.message)
+            },
+          })
+        }
         onClose={() => setModal(null)}
       />
       <Modal

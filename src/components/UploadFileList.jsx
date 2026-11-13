@@ -3,7 +3,7 @@ import iconCheck from '@/assets/icons/check-primary.svg'
 import iconTrash from '@/assets/icons/trash.svg'
 import iconRefresh from '@/assets/icons/refresh.svg'
 import Chip from '@/components/Chip'
-import { canRetryItem } from '@/stores/useUploadQueueStore'
+import { canRestartItem, canRetryItem } from '@/stores/useUploadQueueStore'
 import { formatBytes, MIME_LABEL } from '@/utils/format'
 
 const STATUS_CHIP = {
@@ -64,14 +64,23 @@ export default function UploadFileList({ items, onRemove, onRetry }) {
             {item.status === 'failed' && (
               <div className="flex items-center gap-2 rounded-[10px] bg-error-soft px-3 py-2">
                 <p className="flex-1 text-xs leading-[1.5] text-error">{item.error?.message}</p>
-                {canRetryItem(item) && (
+                {(canRetryItem(item) || canRestartItem(item)) && (
                   <button
                     type="button"
-                    onClick={() => onRetry(item.id)}
+                    onClick={() => {
+                      if (
+                        canRestartItem(item) &&
+                        !window.confirm(
+                          '이전 분석이 이미 처리됐을 수도 있어요. 다시 실행하면 한 번 더 처리될 수 있어요. 다시 실행할까요?',
+                        )
+                      )
+                        return
+                      onRetry(item.id)
+                    }}
                     className="flex shrink-0 items-center gap-1 rounded-md bg-white px-2 py-1 text-xs font-bold text-secondary"
                   >
                     <img src={iconRefresh} alt="" className="size-3" />
-                    재시도
+                    {canRetryItem(item) ? '재시도' : '다시 실행'}
                   </button>
                 )}
               </div>

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import iconLock from '@/assets/icons/lock.svg'
-import iconShare from '@/assets/icons/share.svg'
 import { USE_MOCK } from '@/api/client'
 import Button from '@/components/Button'
 import { Divider } from '@/components/Card'
@@ -11,10 +10,10 @@ import { XIcon } from '@/components/icons'
 import { CONCEPTS } from '@/data/flow'
 import Screen, { PageTitle } from '@/components/Screen'
 import Source from '@/components/Source'
-import Toggle from '@/components/Toggle'
 import {
   useConcepts,
   useCreateQuestionSet,
+  useQuestionSets,
   useDday,
   useMaterial,
   useToday,
@@ -62,6 +61,9 @@ function toUnits(material, units = [], concepts = []) {
     .filter((u) => u.versionIds.length > 0)
 }
 
+const SET_STATUS = { generating: '만드는 중', failed: '만들지 못했어요' }
+const DIFFICULTY_LABEL = { easy: '하', medium: '중', hard: '상' }
+
 // A-03 개념 확인 설정 (08 대체) · mode='advanced' 면 A-08 심화 문제
 export default function QuizCreatePage({ mode = 'basic' }) {
   const navigate = useNavigate()
@@ -72,7 +74,7 @@ export default function QuizCreatePage({ mode = 'basic' }) {
     ? ['단원 전체', '여러 단원']
     : ['오늘 배운 개념', '단원 전체', '직접 선택']
   const [scope, setScope] = useState(scopes[0])
-  const [count, setCount] = useState(fromReview ? 5 : 10)
+  const [rawCount, setCount] = useState(fromReview ? 5 : 10)
   const [unitTitle, setUnitTitle] = useState(null)
   const [picked, setPicked] = useState(() =>
     fromReview
@@ -84,6 +86,7 @@ export default function QuizCreatePage({ mode = 'basic' }) {
   const dday = useDday()
 
   const materialId = useStudyStore((s) => s.materialId)
+  const setIds = useStudyStore((s) => s.setIds)
   const material = useMaterial(materialId)
   const unitsQuery = useUnits(materialId)
   const conceptsQuery = useConcepts(materialId)
@@ -94,6 +97,11 @@ export default function QuizCreatePage({ mode = 'basic' }) {
   const task = today.data?.tasks.find((t) => t.id === params.get('task') && t.task_type === 'solve')
   const units = USE_MOCK ? DUMMY_UNITS : toUnits(material.data, unitsQuery.data, conceptsQuery.data)
   const taskUnitId = task?.concepts[0]?.unit_id
+  // 명세: 할 일과 연결하면 count 는 남은 목표(target_count - completed_count) 이하
+  const maxCount = task ? Math.max(1, task.target_count - task.completed_count) : 20
+  const minCount = Math.min(5, maxCount)
+  const count = Math.min(Math.max(rawCount, minCount), maxCount)
+  const sets = useQuestionSets(task?.id)
   const selected =
     units.find((u) => u.title === unitTitle) ?? units.find((u) => u.id === taskUnitId) ?? units[0]
 
@@ -211,8 +219,8 @@ export default function QuizCreatePage({ mode = 'basic' }) {
           <button
             type="button"
             aria-label="한 문제 빼기"
-            disabled={count <= 5}
-            onClick={() => setCount((c) => c - 1)}
+            disabled={count <= minCount}
+            onClick={() => setCount(count - 1)}
             className="flex size-11 items-center justify-center rounded-xl bg-cool text-xl font-bold disabled:opacity-30"
           >
             −
@@ -223,8 +231,8 @@ export default function QuizCreatePage({ mode = 'basic' }) {
           <button
             type="button"
             aria-label="한 문제 더하기"
-            disabled={count >= 20}
-            onClick={() => setCount((c) => c + 1)}
+            disabled={count >= maxCount}
+            onClick={() => setCount(count + 1)}
             className="flex size-11 items-center justify-center rounded-xl bg-cool text-xl font-bold disabled:opacity-30"
           >
             +
@@ -232,8 +240,8 @@ export default function QuizCreatePage({ mode = 'basic' }) {
         </div>
         <input
           type="range"
-          min={5}
-          max={20}
+          min={minCount}
+          max={maxCount}
           value={count}
           onChange={(e) => setCount(Number(e.target.value))}
           aria-label="문제 수"
@@ -271,22 +279,43 @@ export default function QuizCreatePage({ mode = 'basic' }) {
             </p>
           </div>
         </div>
-        <Divider />
-        <div className="flex gap-[10px] text-muted">
-          <img src={iconShare} alt="" className="size-[18px] shrink-0" />
-          <div className="flex flex-1 flex-col gap-[2px]">
-            <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">
-              공개 공유 · 출시 예정
-            </p>
-            <p className="text-xs leading-[1.5]">
-              공유는 직접 선택할 때만 이뤄져요.
-              <br />
-              원본 자료와 비공개 페이지는 공개되지 않아요.
-            </p>
-          </div>
-          <Toggle disabled />
-        </div>
       </div>
+
+      {/* 내가 만든 문제 (GET /question-sets) · 이어 풀기 */}
+      {!USE_MOCK && (sets.data ?? []).length > 0 && (
+        <div className="flex flex-col gap-[10px]">
+          <p className="text-[13px] leading-[1.3] font-bold">
+            {task ? '이 할 일로 만든 문제' : '최근 만든 문제'}
+          </p>
+          <ul className="flex flex-col">
+            {sets.data.slice(0, 5).map((set, i) => (
+              <li key={set.id}>
+                {i > 0 && <Divider />}
+                <button
+                  type="button"
+                  disabled={set.status !== 'ready'}
+                  onClick={() => {
+                    setIds({ questionSetId: set.id })
+                    navigate(`/quiz/solve?n=${set.count}`)
+                  }}
+                  className="flex w-full items-center justify-between py-3 text-left disabled:opacity-50"
+                >
+                  <span className="text-sm leading-[1.4] font-medium">
+                    {set.count}문제 · 난이도 {DIFFICULTY_LABEL[set.difficulty]}
+                  </span>
+                  <Chip tone={set.status === 'failed' ? 'error' : 'cool'}>
+                    {set.status !== 'ready'
+                      ? SET_STATUS[set.status]
+                      : set.next_ordinal === null
+                        ? '다 풀었어요'
+                        : `${set.next_ordinal}번부터 이어 풀기`}
+                  </Chip>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </Screen>
   )
 }

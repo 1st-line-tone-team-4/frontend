@@ -5,6 +5,7 @@ import {
   fetchMaterialPageCount,
   isCanceled,
   pollJob,
+  restartMaterialJob,
   retryMaterialJob,
   uploadMaterialFile,
 } from '@/api/materialUpload'
@@ -38,8 +39,15 @@ export const canRetryItem = (item) =>
   item.job.retryable === true &&
   (item.job.attempt_no ?? 1) < MAX_JOB_ATTEMPTS
 
+// 재시도할 수 없는 실패(또는 3회 소진) · 결과 불명 → 다시 실행(restart) 가능
+export const canRestartItem = (item) =>
+  item.status === 'failed' &&
+  (item.job?.status === 'outcome_unknown' || (item.job?.status === 'failed' && !canRetryItem(item)))
+
 const jobErrorMessage = (job) =>
-  job?.error_message ?? job?.error?.message ?? 'AI 분석에 실패했어요.'
+  job?.status === 'outcome_unknown'
+    ? '분석 결과를 확인하지 못했어요.'
+    : (job?.error_message ?? job?.error?.message ?? 'AI 분석에 실패했어요.')
 
 export const useUploadQueueStore = create((set, get) => {
   const patch = (id, changes) =>
@@ -187,15 +195,16 @@ export const useUploadQueueStore = create((set, get) => {
       pump()
     },
 
-    // 실패한 분석 job 재시도 (POST /jobs/{id}/retry)
+    // 실패한 분석 job 복구 · 가능하면 retry(같은 job), 아니면 restart(새 job)
     retry: async (id) => {
       const item = find(id)
-      if (!item || !canRetryItem(item)) return
+      if (!item || !(canRetryItem(item) || canRestartItem(item))) return
+      const recover = canRetryItem(item) ? retryMaterialJob : restartMaterialJob
       const controller = begin(id)
       const { signal } = controller
       patch(id, { status: 'analyzing', error: null })
       try {
-        const job = await retryMaterialJob(item.job.id, { signal })
+        const job = await recover(item.job.id, { signal, materialId: item.materialId })
         const next = { ...item.job, ...job, id: job?.id ?? item.job.id }
         patch(id, { job: next })
         await watchJob(id, next, signal)

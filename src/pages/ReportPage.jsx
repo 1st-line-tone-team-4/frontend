@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useState } from 'react'
 import iconAlert from '@/assets/icons/alert-error.svg'
 import iconTarget from '@/assets/icons/target.svg'
@@ -13,7 +14,7 @@ import {
   useDday,
   useReportFeedback,
   useTeachbackReport,
-  useUpdateImprovementAction,
+  useToday,
 } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { toPercent } from '@/utils/format'
@@ -23,8 +24,8 @@ const DUMMY = {
   title: '현재완료를 한 번 더 정리해요',
   desc: '방금 마친 설명 · 현재완료',
   coverage: 58,
-  basis: '이번 개념의 확정 항목 12개 기준',
-  formula: '설명 2점 · 부분 1점 · 누락·오류 0점\n14 / 24점 = 58% (반올림) · 시험 점수가 아니에요',
+  basis: '전체 12개 확인 항목 기준',
+  breakdown: '완벽 설명 5개 · 부분 설명 4개 · 보완 필요 3개',
   results: [
     {
       title: '현재완료 형태 외 4개',
@@ -73,6 +74,25 @@ const sourceOf = (item) => {
   const e = item?.evidence?.[0]
   return e ? `${e.material_name} p.${e.page_number}` : null
 }
+// 근거 원문 보기 (GET /materials/{id}/chunks/{chunkId})
+const sourceTo = (item) => {
+  const e = item?.evidence?.[0]
+  return e ? `/source?material=${e.material_id}&page=${e.page_number}&chunk=${e.chunk_id}` : null
+}
+
+// 항목 수로 보는 설명 결과 · 근거 부족(unverified)은 완성도 계산에서 빠져서 따로 적어요
+function breakdown(items) {
+  const n = (...keys) => items.filter((it) => keys.includes(it.status)).length
+  const unverified = n('unverified')
+  return [
+    `완벽 설명 ${n('explained')}개`,
+    `부분 설명 ${n('partial')}개`,
+    `보완 필요 ${n('omission', 'error')}개`,
+    unverified ? `확인 불가 ${unverified}개` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
 
 // API 리포트 → 화면 데이터 (상태별로 묶어서 '첫 항목 외 n개')
 function toView(report) {
@@ -86,6 +106,7 @@ function toView(report) {
           ? `${items[0].description} 외 ${items.length - 1}개`
           : items[0].description,
       source: sourceOf(items[0]),
+      to: sourceTo(items[0]),
       tone: s.tone,
       label: `${s.label} · ${items.length}개`,
     }
@@ -96,10 +117,10 @@ function toView(report) {
     title: '설명을 한 번 더 정리해요',
     desc: `방금 마친 설명 · 기준 버전 v${report.version_no}`,
     coverage: pct,
-    basis: `평가 가능한 확인 항목 ${report.assessable_count}개 기준`,
-    formula: `${report.coverage_formula}\n${report.weighted_score} / ${report.assessable_count}점${pct !== null ? ` = ${pct}%` : ''} · 시험 점수가 아니에요`,
+    basis: `전체 ${report.assessable_count}개 확인 항목 기준`,
+    breakdown: breakdown(report.items),
     results,
-    error: err && { title: err.description, source: sourceOf(err) },
+    error: err && { title: err.description, source: sourceOf(err), to: sourceTo(err) },
     nextAction: report.next_action,
     actionId: report.action_id,
   }
@@ -109,13 +130,12 @@ const PASS = 80 // 다음 개념으로 넘어가는 설명률 기준 (제안)
 
 // 12 약점 리포트
 export default function ReportPage() {
-  const [nextDone, setNextDone] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const dday = useDday()
   const sessionId = useStudyStore((s) => s.sessionId)
   const report = useTeachbackReport()
-  const updateAction = useUpdateImprovementAction()
   const feedback = useReportFeedback()
+  const today = useToday()
 
   const view = USE_MOCK ? DUMMY : report.data ? toView(report.data) : null
   const header = { title: '약점 리포트', dday }
@@ -129,20 +149,6 @@ export default function ReportPage() {
           action={{ label: '설명하러 가기', to: '/teach/prepare' }}
         />
       </Screen>
-    )
-  }
-
-  const onToggleNext = (checked) => {
-    setNextDone(checked)
-    if (!view.actionId) return
-    updateAction.mutate(
-      { actionId: view.actionId, status: checked ? 'completed' : 'pending' },
-      {
-        onError: (err) => {
-          setNextDone(!checked)
-          alert(err.message)
-        },
-      },
     )
   }
 
@@ -162,6 +168,20 @@ export default function ReportPage() {
   }
 
   const retryLink = USE_MOCK ? '/teach/prepare?retry=1' : `/teach/prepare?retry=1&prev=${sessionId}`
+  // 부족한 부분 재학습 = 계획의 '복습하기' 단계 (문제 풀기 → 설명하기 → 복습하기)
+  // 같은 개념의 남은 복습 할 일이 있으면 연결해서 개념 학습 화면에서 바로 '복습 완료'를 누르게 해요
+  // 부족한 부분만 따로 설명하는 API 는 없어서, 개념 설명 위에 이 리포트의 부족한 항목을 함께 보여 줘요
+  const cv = report.data?.concept_version_id
+  const reviewTask = today.data?.tasks.find(
+    (t) =>
+      t.task_type === 'review' &&
+      t.concept_version_ids.includes(cv) &&
+      t.status !== 'completed' &&
+      t.status !== 'skipped',
+  )
+  const reviewLink = report.data
+    ? `/study?concept=${cv}&session=${report.data.session_id}${reviewTask ? `&task=${reviewTask.id}` : ''}`
+    : '/study?review=1'
   const passed = (view.coverage ?? 0) >= PASS
   const lastConceptOfUnit = true // 목 시나리오: 현재완료가 단원의 마지막 개념
 
@@ -171,7 +191,7 @@ export default function ReportPage() {
       bottom={
         passed ? (
           <>
-            <Button to="/unit">다음 개념으로</Button>
+            <Button to="/today">다음 개념으로</Button>
             {lastConceptOfUnit && (
               <Button to="/quiz/advanced" variant="secondary">
                 심화 문제 풀기
@@ -180,7 +200,7 @@ export default function ReportPage() {
           </>
         ) : (
           <>
-            <Button to="/review">부족한 부분 재학습</Button>
+            <Button to={reviewLink}>부족한 부분 재학습</Button>
             <div className="flex w-full gap-2">
               <Button to={retryLink} variant="secondary" className="flex-1 text-[15px]">
                 다시 설명하기
@@ -200,7 +220,7 @@ export default function ReportPage() {
       <div className="flex flex-col gap-[6px] rounded-[18px] bg-[linear-gradient(145deg,#5f8ff5_0%,var(--color-secondary)_74%)] px-5 py-[18px] text-white">
         <div className="flex items-end justify-between">
           <div className="flex flex-col gap-[2px] leading-[1.4]">
-            <p className="text-sm font-bold">확인 항목 설명률</p>
+            <p className="text-sm font-bold">개념 설명 완성도</p>
             <p className="text-xs text-white/82">{view.basis}</p>
           </div>
           <p className="text-[38px] leading-[1.1] font-bold tracking-[-0.76px]">
@@ -215,9 +235,7 @@ export default function ReportPage() {
             />
           </div>
         </div>
-        <p className="text-[11px] leading-[1.55] whitespace-pre-line text-white/85">
-          {view.formula}
-        </p>
+        <p className="text-[11px] leading-[1.55] text-white/85">{view.breakdown}</p>
       </div>
 
       <section>
@@ -231,7 +249,14 @@ export default function ReportPage() {
               <div className="flex items-center gap-[10px] py-3">
                 <div className="flex flex-1 flex-col gap-[2px]">
                   <p className="text-sm leading-[1.4] font-bold tracking-[-0.14px]">{r.title}</p>
-                  {r.source && <Source>{r.source}</Source>}
+                  {r.source &&
+                    (r.to ? (
+                      <Link to={r.to}>
+                        <Source>{r.source}</Source>
+                      </Link>
+                    ) : (
+                      <Source>{r.source}</Source>
+                    ))}
                 </div>
                 <Chip tone={r.tone}>{r.label}</Chip>
               </div>
@@ -256,7 +281,14 @@ export default function ReportPage() {
           {view.error.desc && (
             <p className="text-[13px] leading-[1.55] text-sub">{view.error.desc}</p>
           )}
-          {view.error.source && <Source>{view.error.source}</Source>}
+          {view.error.source &&
+            (view.error.to ? (
+              <Link to={view.error.to}>
+                <Source>{view.error.source}</Source>
+              </Link>
+            ) : (
+              <Source>{view.error.source}</Source>
+            ))}
         </div>
       )}
 
@@ -266,24 +298,15 @@ export default function ReportPage() {
             <img src={iconTarget} alt="" className="size-4" />
             다음에는 이것 하나만
           </p>
-          <label className="flex cursor-pointer items-start gap-[10px]">
-            <input
-              type="checkbox"
-              checked={nextDone}
-              onChange={(e) => onToggleNext(e.target.checked)}
-              className="mt-[2px] size-[18px] shrink-0 appearance-none rounded-[5px] border-[1.5px] border-primary bg-white checked:bg-primary"
-            />
-            <span
-              className={`text-sm leading-[1.55] font-medium ${nextDone ? 'text-sub line-through' : ''}`}
-            >
-              {view.nextAction}
-            </span>
-          </label>
+          <p className="text-sm leading-[1.55] font-medium">{view.nextAction}</p>
+          {/* 했는지 표시는 기록 탭 '다음에 할 일'에서 해요 (PATCH /records/actions/{id}) */}
+          <p className="text-xs leading-[1.5] text-sub">
+            해 본 뒤에는 기록 탭에서 완료로 표시할 수 있어요.
+          </p>
         </div>
       )}
 
       <p className="flex items-center justify-center gap-[6px] text-xs leading-[1.3]">
-        <span className="text-muted">재설명은 이번 설명과 연결해 비교해요.</span>
         <button
           type="button"
           onClick={() => setReportOpen(true)}
