@@ -378,7 +378,7 @@ export default function UploadExamPage() {
             name="exam-name"
             value={title}
             onChange={(e) => setTypedTitle(e.target.value)}
-            placeholder="예: 토익 정기시험, 1학기 중간고사"
+            placeholder="시험 이름을 입력해 주세요"
           />
         </Field>
         <div className="flex flex-col gap-[14px]">

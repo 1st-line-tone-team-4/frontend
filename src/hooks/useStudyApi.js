@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { USE_MOCK, mockResponse } from '@/api/client'
 import { listAIModels, resolveModelId } from '@/api/ai'
-import { canRetryJob, getJob, restartJob, retryJob, waitForJob } from '@/api/jobs'
+import { canRetryJob, getJob, parseRetryAfter, restartJob, retryJob, waitForJob } from '@/api/jobs'
 import * as Api from '@/api/study'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { daysUntil, formatDday } from '@/utils/format'
@@ -21,6 +21,53 @@ export const useMe = () => useQuery({ queryKey: ['me'], queryFn: Api.getMe, enab
 
 export const useExamGoals = () =>
   useQuery({ queryKey: ['exam-goals'], queryFn: () => Api.listExamGoals(), enabled: live(true) })
+
+// 지금 공부 중인 과목(시험 목표) · 저장된 것이 없거나 목록에 없으면 첫 번째 진행 중 목표
+export function useCurrentExamGoal() {
+  const examGoalId = useStudyStore((s) => s.examGoalId)
+  const goals = useExamGoals()
+  const today = useToday()
+  const items = goals.data?.items ?? []
+  const active = items.filter((g) => g.status === 'active')
+  // 저장된 과목 → 오늘 화면이 고른 과목(GET /today 의 exam_goal_id) → 진행 중 첫 과목
+  const current =
+    items.find((g) => g.id === examGoalId) ??
+    items.find((g) => g.id === today.data?.exam_goal_id) ??
+    active[0] ??
+    items[0] ??
+    null
+  return { goals, items, active, current }
+}
+
+// 과목 바꾸기 → 그 목표의 진행 중 계획 · 자료로 흐름 ID 를 모두 바꾸고 화면 데이터를 새로 받아요
+export function useSwitchExamGoal() {
+  const setIds = useStudyStore((s) => s.setIds)
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (goal) => {
+      const { items } = await Api.listStudyPlans({
+        exam_goal_id: goal.id,
+        status: 'active',
+        limit: 1,
+      })
+      return { goal, plan: items[0] ?? null }
+    },
+    onSuccess: ({ goal, plan }) => {
+      const materialIds = plan?.material_ids ?? []
+      setIds({
+        examGoalId: goal.id,
+        examDate: goal.exam_date ?? null,
+        planId: plan?.id ?? null,
+        materialIds,
+        materialId: materialIds[0] ?? null,
+        // 이전 과목에서 이어 보던 문제 · 설명은 끊어요
+        questionSetId: null,
+        sessionId: null,
+      })
+      qc.invalidateQueries()
+    },
+  })
+}
 
 export function useToday() {
   const examGoalId = useStudyStore((s) => s.examGoalId)
@@ -151,12 +198,17 @@ export function useConfirmConceptsAndPlan() {
 /* ── 계획 ─────────────────────────────────────── */
 export function useStudyPlan() {
   const planId = useStudyStore((s) => s.planId)
+  const examGoalId = useStudyStore((s) => s.examGoalId)
   return useQuery({
-    queryKey: ['plan', planId],
-    // 저장된 계획 ID 가 없으면 활성 계획 목록의 첫 번째를 사용
+    queryKey: ['plan', planId, examGoalId],
+    // 저장된 계획 ID 가 없으면 지금 과목의 활성 계획 (과목도 없으면 활성 계획 첫 번째)
     queryFn: async () => {
       if (planId) return Api.getStudyPlan(planId)
-      const { items } = await Api.listStudyPlans({ status: 'active', limit: 1 })
+      const { items } = await Api.listStudyPlans({
+        status: 'active',
+        limit: 1,
+        ...(examGoalId && { exam_goal_id: examGoalId }),
+      })
       return items[0] ? Api.getStudyPlan(items[0].id) : null
     },
     enabled: live(true),
@@ -194,7 +246,8 @@ export const useJob = (jobId) =>
     queryKey: ['job', jobId],
     queryFn: () => getJob(jobId),
     enabled: live(jobId),
-    refetchInterval: (q) => (['queued', 'running'].includes(q.state.data?.status) ? 2000 : false),
+    // 서버 제한(같은 job 2초에 1회)에 걸리지 않도록 여유 있게 조회
+    refetchInterval: (q) => (['queued', 'running'].includes(q.state.data?.status) ? 3000 : false),
   })
 
 // 실패한 job 복구 · retry 가능하면 같은 job 재시도, 아니면 restart (호출 전에 중복 실행 동의를 받아요)
@@ -241,8 +294,13 @@ export function useCreateLearningExplanation() {
 }
 
 /* ── 문제 ─────────────────────────────────────── */
+// POST /question-sets → 202 { job } · job.resource_id 가 새 문제 세트 id 예요
+// 409 JOB_IN_PROGRESS: 같은 조건(단원·버전 집합·할 일·문제 수·난이도)으로 이미 만드는 중
+// 409 DUPLICATE_EXECUTION_ACK_REQUIRED: 결과를 알 수 없는 이전 작업이 있어 중복 실행 동의가 필요해요
+//   → 화면에서 동의를 받고 acknowledge_possible_duplicate_execution: true 로 다시 보내요
 export function useCreateQuestionSet() {
   const setIds = useStudyStore((s) => s.setIds)
+  const qc = useQueryClient()
   return useMutation({
     mutationFn: mockOr(async (body) => {
       const { job } = await Api.createQuestionSet({
@@ -250,10 +308,12 @@ export function useCreateQuestionSet() {
         ...body,
         model_id: await resolveModelId(),
       })
-      await waitForJob(job)
-      return job.resource_id
+      const done = await waitForJob(job)
+      return done.resource_id ?? job.resource_id
     }, 'mock-set'),
     onSuccess: (setId) => setIds({ questionSetId: setId }),
+    // 성공 · 실패 모두 '최근 만든 문제' 목록을 새로 받아요 (만드는 중인 세트가 보이도록)
+    onSettled: () => qc.invalidateQueries({ queryKey: ['question-sets'] }),
   })
 }
 
@@ -266,7 +326,37 @@ export function useQuestionSet() {
   })
 }
 
+// 채점 결과(attempt) 가 나올 때까지 attempt 를 직접 조회해요
+// /jobs 는 2초에 1회 제한이 있어 결과가 늦게 보여요 → 객관식은 1초 안에 채점되므로 짧게 확인해요
+const ATTEMPT_POLL_MS = [400, 600, 800, 1000, 1500] // 이후 1.5초 간격
+const ATTEMPT_TIMEOUT_MS = 90_000
+const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function waitForAttempt(attemptId) {
+  const started = Date.now()
+  for (let i = 0; Date.now() - started < ATTEMPT_TIMEOUT_MS; i++) {
+    await wait(ATTEMPT_POLL_MS[Math.min(i, ATTEMPT_POLL_MS.length - 1)])
+    try {
+      const attempt = await Api.getAttempt(attemptId)
+      if (attempt.status === 'graded') return attempt
+      if (attempt.status === 'failed') {
+        throw { code: 'GRADE_FAILED', message: '채점에 실패했어요. 다시 제출해 주세요.', attempt }
+      }
+    } catch (err) {
+      if (err?.code === 'GRADE_FAILED') throw err
+      if (err?.status === 429) {
+        await wait(parseRetryAfter(err.retryAfter) ?? 2000)
+        continue
+      }
+      if (err?.status && err.status < 500) throw err
+      // 네트워크 · 5xx 는 다음 조회에서 다시 시도
+    }
+  }
+  throw { code: 'JOB_TIMEOUT', message: '채점이 오래 걸리고 있어요. 잠시 후 다시 확인해 주세요.' }
+}
+
 // 답 제출 → 채점 완료까지 기다린 뒤 채점 결과(attempt) 반환
+// 202 job.resource_id = attempt id (resource_type: attempt)
 export function useSubmitAttempt() {
   const qc = useQueryClient()
   return useMutation({
@@ -276,8 +366,11 @@ export function useSubmitAttempt() {
         question_set_id: questionSetId,
         model_id: await resolveModelId(),
       })
-      await waitForJob(job)
-      return Api.getAttempt(job.resource_id)
+      if (job.resource_type === 'attempt' && job.resource_id) {
+        return waitForAttempt(job.resource_id)
+      }
+      const done = await waitForJob(job)
+      return Api.getAttempt(done.resource_id)
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['question-set'] }),
   })
@@ -348,13 +441,13 @@ export function useCompleteTeachback() {
 }
 
 // sessionIdOverride: 다른 화면에서 특정 세션 리포트를 볼 때 (없으면 현재 세션)
-export function useTeachbackReport(sessionIdOverride) {
+export function useTeachbackReport(sessionIdOverride, { enabled = true } = {}) {
   const storedId = useStudyStore((s) => s.sessionId)
   const sessionId = sessionIdOverride ?? storedId
   return useQuery({
     queryKey: ['report', sessionId],
     queryFn: () => Api.getTeachbackReport(sessionId),
-    enabled: live(sessionId),
+    enabled: enabled && live(sessionId),
   })
 }
 

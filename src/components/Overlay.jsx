@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { create } from 'zustand'
 import Button from './Button'
 
@@ -38,6 +39,10 @@ function useEscape(open, onClose) {
   }, [open, onClose])
 }
 
+// 팝업 · 시트는 body 로 띄워요
+// (sticky 헤더 안에서 열면 그 쌓임 순서에 갇혀 하단 버튼 · 탭 바 아래로 가려져요)
+const portal = (node) => createPortal(node, document.body)
+
 /* ── 확인 팝업 ───────────────────────────────── */
 export function Modal({
   open,
@@ -51,8 +56,8 @@ export function Modal({
 }) {
   useEscape(open, onClose)
   if (!open) return null
-  return (
-    <div className="animate-fade-in fixed inset-0 z-40 flex items-center justify-center bg-ink/40 px-8">
+  return portal(
+    <div className="animate-fade-in fixed inset-0 z-[45] flex items-center justify-center bg-ink/40 px-8">
       <div
         role="dialog"
         aria-modal="true"
@@ -79,7 +84,7 @@ export function Modal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
   )
 }
 
@@ -87,7 +92,7 @@ export function Modal({
 export function BottomSheet({ open, title, onClose, children, footer }) {
   useEscape(open, onClose)
   if (!open) return null
-  return (
+  return portal(
     <div
       className="animate-fade-in fixed inset-0 z-40 flex items-end justify-center bg-ink/40"
       onClick={onClose}
@@ -114,6 +119,6 @@ export function BottomSheet({ open, title, onClose, children, footer }) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
   )
 }

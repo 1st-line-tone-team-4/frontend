@@ -9,7 +9,6 @@ import Chip from '@/components/Chip'
 import JobRecovery from '@/components/JobRecovery'
 import { toast } from '@/components/Overlay'
 import Screen, { BottomNote } from '@/components/Screen'
-import Source from '@/components/Source'
 import {
   useCreateLearningExplanation,
   useDday,
@@ -67,19 +66,24 @@ function toView(explanation, concept, index, total) {
     if (h) sections.push({ title: h[1].trim(), lines: [] })
     else if (!/^#\s/.test(line)) sections[sections.length - 1].lines.push(line)
   }
+  // '근거: …' 줄과 '(근거: …)' 같은 인라인 표기는 가독성을 위해 빼요
   const clean = (lines) =>
     lines
+      .filter((l) => !/^\s*(?:[-*·>]\s*)?[(（[]?\s*\**\s*근거\s*\**\s*[:：]/.test(l))
       .join('\n')
+      .replace(/\s*[(（[]\s*근거\s*[:：][^)）\]]*[)）\]]/g, '')
       .replace(/\*\*(.+?)\*\*/g, '$1')
       .replace(/^\s*[-*]\s+/gm, '· ')
       .trim()
   const [first, ...rest] = sections
-  const items = rest.map((s, i) => ({
-    title: s.title,
-    body: clean(s.lines),
-    source: sourceText(evidence[i + 1]),
-    warn: /주의/.test(s.title),
-  }))
+  const items = rest
+    .filter((s) => !/^근거/.test(s.title))
+    .map((s, i) => ({
+      title: s.title,
+      body: clean(s.lines),
+      source: sourceText(evidence[i + 1]),
+      warn: /주의/.test(s.title),
+    }))
   const example = items.find((p) => /예시|예문/.test(p.title))
 
   return {
@@ -139,13 +143,16 @@ export default function StudyPage() {
   const updateTask = useUpdatePlanTask()
   // 리포트에서 '부족한 부분 재학습'으로 들어오면(?session=) 그 리포트의 부족한 항목을 함께 보여 줘요
   const fromReport = Boolean(params.get('session')) || params.get('review') === '1'
-  const report = useTeachbackReport(params.get('session') ?? undefined)
+  // 리포트에서 들어왔을 때만 조회해요 (완료 안 된 세션 리포트를 부르면 409)
+  const report = useTeachbackReport(params.get('session') ?? undefined, { enabled: fromReport })
   const weakItems = USE_MOCK
     ? fromReport
       ? MOCK_WEAK
       : []
     : (report.data?.items ?? []).filter((it) => WEAK_STATUS[it.status])
   const isReview = reviewOpen || fromReport
+  // 복습 할 일을 이미 마쳤으면(방금 '복습 완료' 포함) 문제 풀기 · 홈으로 안내해요
+  const reviewDone = !fromReport && task?.task_type === 'review' && task.status === 'completed'
   // 문제 풀이 결과에서 '개념 다시 보기'로 왔으면 다음은 설명하기 (문제를 또 만들지 않아요)
   const fromQuiz = params.get('from') === 'quiz'
 
@@ -229,7 +236,15 @@ export default function StudyPage() {
       header={header}
       bottom={
         <>
-          {isReview ? (
+          {reviewDone ? (
+            <>
+              <BottomNote>복습을 마쳤어요. 문제로 확인하거나 홈으로 돌아가요.</BottomNote>
+              <Button to="/quiz?from=review">문제 풀러 가기</Button>
+              <Button to="/today" variant="secondary">
+                홈으로 가기
+              </Button>
+            </>
+          ) : isReview ? (
             <>
               {/* 복습 단계: 다시 읽고 '복습 완료' · 다시 설명하기와 보충 문제는 선택 */}
               <BottomNote>부족했던 부분을 다시 읽었다면 복습을 마쳐요.</BottomNote>
@@ -312,7 +327,6 @@ export default function StudyPage() {
       <Card tone="gradient" className="rounded-[18px] px-5 py-[18px]">
         <p className="text-lg leading-[1.4] font-bold tracking-[-0.36px]">{view.main.title}</p>
         <p className="text-sm leading-[1.65] whitespace-pre-line">{view.main.body}</p>
-        {view.main.source && <Source>{view.main.source}</Source>}
       </Card>
 
       {view.points.map((p, i) => (
@@ -326,7 +340,6 @@ export default function StudyPage() {
               {p.title}
             </h2>
             <p className="text-sm leading-[1.65] whitespace-pre-line text-sub">{p.body}</p>
-            {p.source && <Source>{p.source}</Source>}
           </section>
         </div>
       ))}
@@ -342,7 +355,6 @@ export default function StudyPage() {
           <p className="text-[13px] leading-[1.55] whitespace-pre-line text-sub">
             {view.example.body}
           </p>
-          {view.example.source && <Source>{view.example.source}</Source>}
         </Card>
       )}
     </Screen>

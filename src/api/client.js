@@ -33,14 +33,36 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res.data,
   (err) => {
-    if (err.response?.status === 401) useAuthStore.getState().logout()
+    const res = err.response
+    if (res?.status === 401) useAuthStore.getState().logout()
+    const apiError = res?.data?.error
+    // 서버 오류 형식({ error: { code, message } })이 아닐 때 원인을 구분해서 알려줘요
+    let code = apiError?.code
+    let message = apiError?.message
+    if (!apiError) {
+      if (axios.isCancel(err)) {
+        code = 'CANCELED'
+        message = '요청이 취소됐어요.'
+      } else if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+        code = 'TIMEOUT'
+        message = `서버 응답이 ${Math.round((err.config?.timeout ?? 0) / 1000)}초 넘게 없어요. 잠시 후 다시 시도해 주세요.`
+      } else if (!res) {
+        code = 'NETWORK_ERROR'
+        message = '서버에 연결하지 못했어요. 네트워크나 서버 상태를 확인해 주세요.'
+      } else {
+        code = `HTTP_${res.status}`
+        message = `서버 오류가 발생했어요. (HTTP ${res.status})`
+      }
+      console.error('[api]', err.config?.method?.toUpperCase(), err.config?.url, code, res?.data ?? err.message)
+    }
     return Promise.reject({
-      status: err.response?.status,
-      code: err.response?.data?.error?.code ?? 'NETWORK_ERROR',
-      message: err.response?.data?.error?.message ?? '요청을 처리할 수 없습니다.',
-      details: err.response?.data?.error?.details ?? [],
+      status: res?.status,
+      code,
+      message,
+      details: apiError?.details ?? [],
+      requestId: apiError?.request_id ?? null,
       // 429 대응용 Retry-After 헤더 · AbortController 로 취소된 요청인지
-      retryAfter: err.response?.headers?.['retry-after'] ?? null,
+      retryAfter: res?.headers?.['retry-after'] ?? null,
       canceled: axios.isCancel(err),
     })
   },

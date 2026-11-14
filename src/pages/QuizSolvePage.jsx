@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import iconCheck from '@/assets/icons/check-primary-18.svg'
 import iconX from '@/assets/icons/x-error.svg'
@@ -81,6 +81,8 @@ export default function QuizSolvePage() {
   const [index, setIndex] = useState(null)
   const [results, setResults] = useState({}) // 이번에 제출한 채점 결과 (questionId → attempt)
   const [text, setText] = useState('')
+  const [pendingId, setPendingId] = useState(null) // 채점 중인 보기 id
+  const resultRef = useRef(null)
 
   const set = setQuery.data
   const items = set ? [...set.items].sort((a, b) => a.ordinal - b.ordinal) : []
@@ -107,6 +109,12 @@ export default function QuizSolvePage() {
       }
     : item && toResult(results[item.question.id] ?? item.latest_attempt)
 
+  // 채점 결과가 나오면 해설이 보이도록 스크롤
+  const resultKey = result ? `${current}-${mockIndex}` : null
+  useEffect(() => {
+    if (resultKey) resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [resultKey])
+
   const header = { title: `${KIND[kind]} 풀이`, dday }
   if (!question) {
     return (
@@ -123,11 +131,13 @@ export default function QuizSolvePage() {
   const answer = (payload) => {
     if (USE_MOCK)
       return setMockAnswers((a) => ({ ...a, [mockIndex]: payload.selected_option_ids[0] }))
+    setPendingId(payload.selected_option_ids?.[0] ?? null)
     submit.mutate(
       { questionId: item.question.id, questionSetId: set.id, answer: payload },
       {
         onSuccess: (attempt) => setResults((r) => ({ ...r, [item.question.id]: attempt })),
         onError: (err) => alert(err.message),
+        onSettled: () => setPendingId(null),
       },
     )
   }
@@ -138,6 +148,8 @@ export default function QuizSolvePage() {
       return 'border-[1.5px] border-primary bg-primary-soft font-bold'
     if (answered && id === result.pickedId)
       return 'border-[1.5px] border-error bg-error-soft font-bold'
+    if (submit.isPending && id === pendingId)
+      return 'border-[1.5px] border-primary/60 bg-primary-soft/60 font-bold'
     return 'border border-line bg-white font-medium'
   }
   const pickedIndex = question.choices.findIndex((c) => c.id === result?.pickedId)
@@ -225,24 +237,33 @@ export default function QuizSolvePage() {
             if (text.trim()) answer({ type: 'short_answer', text: text.trim() })
           }}
         >
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <Input
               value={text}
               onChange={(e) => setText(e.target.value)}
-              disabled={answered}
+              disabled={answered || submit.isPending}
               placeholder="답을 입력해 주세요"
             />
           </div>
-          <Button type="submit" className="w-auto px-5" disabled={answered || submit.isPending}>
+          {/* Button 기본 w-full 을 덮어써야 입력칸이 남은 너비를 차지해요 */}
+          <Button
+            type="submit"
+            className="w-auto! shrink-0 px-5"
+            disabled={answered || submit.isPending || !text.trim()}
+          >
             제출
           </Button>
         </form>
       )}
 
-      {submit.isPending && <p className="text-center text-xs text-muted">채점하고 있어요…</p>}
+      {submit.isPending && (
+        <p className="text-center text-xs text-muted">
+          {question.type === 'multiple_choice' ? '채점하고 있어요…' : 'AI가 답을 채점하고 있어요… (10초 정도 걸려요)'}
+        </p>
+      )}
 
       {answered && (
-        <div className="flex flex-col gap-2 rounded-[14px] bg-cool px-4 py-[14px]">
+        <div ref={resultRef} className="flex scroll-mb-28 flex-col gap-2 rounded-[14px] bg-cool px-4 py-[14px]">
           <div>
             <Chip tone={result.isCorrect ? 'primary' : 'error'}>
               {result.isCorrect

@@ -103,7 +103,7 @@ export default function UploadPage() {
         <Input
           value={examName}
           onChange={(e) => setTypedName(e.target.value)}
-          placeholder="예: 토익 정기시험, 1학기 중간고사"
+          placeholder="시험 이름을 입력해 주세요"
         />
       </Field>
     </Screen>

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { api, unwrap, USE_MOCK, mockResponse, newIdempotencyKey } from './client'
-import { getJob, restartJob, retryJob } from './jobs'
+import { getJob, parseRetryAfter, restartJob, retryJob } from './jobs'
 import { getMaterial } from './study'
 import { resolveModelId } from './ai'
 
@@ -43,14 +43,6 @@ function sleep(ms, signal) {
   })
 }
 
-// Retry-After: 초 단위 숫자 또는 HTTP 날짜 → ms
-function parseRetryAfter(value) {
-  if (value === null || value === undefined || value === '') return null
-  const seconds = Number(value)
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
-  const date = Date.parse(value)
-  return Number.isNaN(date) ? null : Math.max(0, date - Date.now())
-}
 
 const isExpired = (expiresAt) =>
   Boolean(expiresAt) && Date.now() >= new Date(expiresAt).getTime() - EXPIRY_MARGIN_MS

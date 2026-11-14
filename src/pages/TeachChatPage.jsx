@@ -153,7 +153,10 @@ export default function TeachChatPage() {
   const last = messages[messages.length - 1]
   const status = USE_MOCK ? 'active' : session.data?.status
   const busy = thinking || send.isPending
-  const canType = status === 'active' && !busy
+  // 명세: 질문 3개 뒤 마지막 답(final-answer)을 저장하면 더 보낼 수 없고 complete 만 가능해요
+  const answersDone =
+    !USE_MOCK && (session.data?.question_count ?? 0) >= BACKEND_MAX_QUESTIONS && last?.from === 'me'
+  const canType = status === 'active' && !busy && !answersDone
 
   // 경과 시간 · 네트워크 상태
   useEffect(() => {
@@ -241,14 +244,30 @@ export default function TeachChatPage() {
     }
 
     // 실제 API
+    // 마지막 답을 이미 보냈으면 다시 보내지 않고 마치기로 안내해요 (재제출은 409)
+    if (answersDone) {
+      endAnswering()
+      return null
+    }
+    const isFinal = (session.data?.question_count ?? 0) >= BACKEND_MAX_QUESTIONS
     setPendingText(text)
     try {
-      await send.mutateAsync({
-        sessionId,
-        content: text,
-        isFinal: (session.data?.question_count ?? 0) >= BACKEND_MAX_QUESTIONS,
-        inputMode: voice ? 'voice_transcript' : 'text',
-      })
+      try {
+        await send.mutateAsync({
+          sessionId,
+          content: text,
+          isFinal,
+          inputMode: voice ? 'voice_transcript' : 'text',
+        })
+      } catch (err) {
+        // 마지막 답이 이미 저장된 상태(409) → 저장된 것으로 보고 마치기로 넘어가요
+        if (!(isFinal && err?.status === 409)) throw err
+      }
+      if (isFinal) {
+        await messagesQuery.refetch()
+        endAnswering()
+        return null
+      }
       const { data } = await messagesQuery.refetch()
       const sorted = [...(data ?? [])].sort((a, b) => a.sequence_no - b.sequence_no)
       const lastMsg = sorted[sorted.length - 1]
@@ -259,6 +278,14 @@ export default function TeachChatPage() {
     } finally {
       setPendingText(null)
     }
+  }
+
+  // 질문 3개에 모두 답함 → 음성 모드를 닫고 '설명 마치기' 확인을 띄워요
+  function endAnswering() {
+    stopSpeaking()
+    if (recording) dictation.abort()
+    setVoiceOpen(false)
+    setModal('finish')
   }
 
   // ── 글/마이크 입력 ──
@@ -428,7 +455,8 @@ export default function TeachChatPage() {
       {/* 대화 */}
       <ul ref={listRef} className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-5">
         <li className="self-center rounded-full bg-cool px-3 py-1 text-[11px] font-medium text-sub">
-          학생은 정답을 먼저 알려주지 않아요 · 질문 수 제한 없음
+          학생은 정답을 먼저 알려주지 않아요
+          {!USE_MOCK && ` · 질문은 최대 ${BACKEND_MAX_QUESTIONS}개`}
         </li>
         {messages.map((m) => {
           if (m.from === 'system') {
@@ -511,6 +539,13 @@ export default function TeachChatPage() {
             </span>
           </li>
         )}
+        {answersDone && !busy && (
+          <li className="flex items-center gap-3 text-[11px] font-bold text-muted">
+            <span className="h-px flex-1 bg-line" />
+            설명이 끝났어요
+            <span className="h-px flex-1 bg-line" />
+          </li>
+        )}
         {showContinue && (
           <li className="flex justify-center">
             <button
@@ -526,95 +561,115 @@ export default function TeachChatPage() {
 
       {/* 입력 영역 */}
       <div className="border-t border-line bg-white px-4 pt-3 pb-[max(20px,env(safe-area-inset-bottom))]">
-        {micDenied && (
-          <p className="mb-2 text-xs leading-[1.5] text-sub">
-            글로 설명할 수 있어요. 설정에서 마이크를 켜면 말로도 설명할 수 있어요.
-          </p>
-        )}
-        {recording && (
-          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-primary-soft px-4 py-2">
-            <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-error/60" />
-              <span className="relative inline-flex size-2 rounded-full bg-error" />
-            </span>
-            <span className="text-xs font-bold text-primary tabular-nums">
-              듣고 있어요 {fmt(recSec)}
-            </span>
-            <MicWave levelRef={levelRef} className="flex-1 justify-end overflow-hidden" />
+        {answersDone ? (
+          // 설명 끝 · 입력창 · 계속 설명하기 · 중단하기 없이 리포트로만 안내
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1 rounded-[14px] bg-primary-soft px-4 py-3 text-center">
+              <p className="text-[15px] leading-[1.4] font-bold text-primary">설명이 끝났어요</p>
+              <p className="text-[13px] leading-[1.5] text-sub">
+                {STUDENT.name}의 질문 {questionCount}개에 모두 답했어요. 리포트에서 잘한 점과 보완할
+                점을 확인해 보세요.
+              </p>
+            </div>
+            <Button className="h-12 text-[15px]" onClick={finish}>
+              리포트 받기
+            </Button>
           </div>
-        )}
-        {voiceDraft && !recording && (
-          <p className="mb-2 text-xs text-sub">받아쓴 내용을 고친 뒤 보낼 수 있어요.</p>
-        )}
-        <form onSubmit={onSend} className="flex items-end gap-2">
-          {!micDenied && (
-            <button
-              type="button"
-              onClick={recording ? stopRecording : startRecording}
-              disabled={!canType}
-              aria-label={recording ? '받아쓰기 끝내기' : '말로 입력하기'}
-              className={`flex size-11 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 ${
-                recording ? 'bg-error text-white' : 'bg-cool text-ink hover:bg-line'
-              }`}
+        ) : (
+          <>
+            {micDenied && (
+              <p className="mb-2 text-xs leading-[1.5] text-sub">
+                글로 설명할 수 있어요. 설정에서 마이크를 켜면 말로도 설명할 수 있어요.
+              </p>
+            )}
+            {recording && (
+              <div className="mb-2 flex items-center gap-3 rounded-2xl bg-primary-soft px-4 py-2">
+                <span className="relative flex size-2">
+                  <span className="absolute inline-flex size-full animate-ping rounded-full bg-error/60" />
+                  <span className="relative inline-flex size-2 rounded-full bg-error" />
+                </span>
+                <span className="text-xs font-bold text-primary tabular-nums">
+                  듣고 있어요 {fmt(recSec)}
+                </span>
+                <MicWave levelRef={levelRef} className="flex-1 justify-end overflow-hidden" />
+              </div>
+            )}
+            {voiceDraft && !recording && (
+              <p className="mb-2 text-xs text-sub">받아쓴 내용을 고친 뒤 보낼 수 있어요.</p>
+            )}
+            <form onSubmit={onSend} className="flex items-end gap-2">
+              {!micDenied && (
+                <button
+                  type="button"
+                  onClick={recording ? stopRecording : startRecording}
+                  disabled={!canType}
+                  aria-label={recording ? '받아쓰기 끝내기' : '말로 입력하기'}
+                  className={`flex size-11 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 ${
+                    recording ? 'bg-error text-white' : 'bg-cool text-ink hover:bg-line'
+                  }`}
+                >
+                  {recording ? <StopIcon size={20} /> : <MicIcon size={22} />}
+                </button>
+              )}
+              <div className="flex min-h-11 flex-1 items-end rounded-[22px] bg-cool px-4 py-[10px]">
+                <textarea
+                  ref={inputRef}
+                  value={draft}
+                  rows={1}
+                  readOnly={recording}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) onSend(e)
+                  }}
+                  placeholder={
+                    recording
+                      ? '말하는 내용을 받아쓰고 있어요…'
+                      : `${STUDENT.name}에게 설명해 주세요`
+                  }
+                  className="max-h-32 min-h-6 w-full resize-none bg-transparent text-[15px] leading-[1.5] outline-none placeholder:text-muted"
+                  style={{ fieldSizing: 'content' }}
+                />
+              </div>
+              {draft.trim() ? (
+                <button
+                  type="submit"
+                  disabled={!canType}
+                  aria-label="보내기"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-40"
+                >
+                  <SendIcon size={20} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={openVoice}
+                  disabled={!canType}
+                  aria-label="음성 대화 모드"
+                  title="음성 대화 모드"
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full bg-ink text-white disabled:opacity-40"
+                >
+                  <WaveIcon size={20} />
+                </button>
+              )}
+            </form>
+            <Button
+              variant="secondary"
+              className="mt-3 h-12 text-[15px]"
+              onClick={() => setModal('finish')}
             >
-              {recording ? <StopIcon size={20} /> : <MicIcon size={22} />}
-            </button>
-          )}
-          <div className="flex min-h-11 flex-1 items-end rounded-[22px] bg-cool px-4 py-[10px]">
-            <textarea
-              ref={inputRef}
-              value={draft}
-              rows={1}
-              readOnly={recording}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) onSend(e)
-              }}
-              placeholder={
-                recording ? '말하는 내용을 받아쓰고 있어요…' : `${STUDENT.name}에게 설명해 주세요`
-              }
-              className="max-h-32 min-h-6 w-full resize-none bg-transparent text-[15px] leading-[1.5] outline-none placeholder:text-muted"
-              style={{ fieldSizing: 'content' }}
-            />
-          </div>
-          {draft.trim() ? (
-            <button
-              type="submit"
-              disabled={!canType}
-              aria-label="보내기"
-              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-white disabled:opacity-40"
-            >
-              <SendIcon size={20} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={openVoice}
-              disabled={!canType}
-              aria-label="음성 대화 모드"
-              title="음성 대화 모드"
-              className="flex size-11 shrink-0 items-center justify-center rounded-full bg-ink text-white disabled:opacity-40"
-            >
-              <WaveIcon size={20} />
-            </button>
-          )}
-        </form>
-        <Button
-          variant="secondary"
-          className="mt-3 h-12 text-[15px]"
-          onClick={() => setModal('finish')}
-        >
-          설명 마치기
-        </Button>
-        {!USE_MOCK && (
-          <button
-            type="button"
-            onClick={() => setModal('abandon')}
-            disabled={busy}
-            className="mt-2 w-full text-center text-xs font-bold text-muted underline disabled:opacity-40"
-          >
-            이번 설명 중단하기
-          </button>
+              설명 마치기
+            </Button>
+            {!USE_MOCK && (
+              <button
+                type="button"
+                onClick={() => setModal('abandon')}
+                disabled={busy}
+                className="mt-2 w-full text-center text-xs font-bold text-muted underline disabled:opacity-40"
+              >
+                이번 설명 중단하기
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -636,12 +691,17 @@ export default function TeachChatPage() {
         />
       )}
 
+      {/* 질문에 모두 답했으면 더 설명할 수 없으니 '계속 설명하기' 없이 리포트로만 안내해요 */}
       <Modal
         open={modal === 'finish'}
-        title="설명을 마칠까요?"
-        desc={`학생 질문 ${questionCount}개에 답했어요.\n설명을 분석해 약점 리포트를 만들어요.`}
-        confirmLabel="설명 마치기"
-        cancelLabel="계속 설명하기"
+        title={answersDone ? '설명이 끝났어요' : '설명을 마칠까요?'}
+        desc={
+          answersDone
+            ? `${STUDENT.name}의 질문 ${questionCount}개에 모두 답했어요.\n설명을 분석해 약점 리포트를 만들어요.`
+            : `학생 질문 ${questionCount}개에 답했어요.\n설명을 분석해 약점 리포트를 만들어요.`
+        }
+        confirmLabel={answersDone ? '리포트 받기' : '설명 마치기'}
+        cancelLabel={answersDone ? null : '계속 설명하기'}
         onConfirm={finish}
         onClose={() => setModal(null)}
       />
