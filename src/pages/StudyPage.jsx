@@ -56,24 +56,47 @@ const DUMMY = {
 
 const sourceText = (e) => (e ? `${e.material_name} p.${e.page_number}` : null)
 
+// AI 가 준 markdown 의 이스케이프를 화면용 글자로 되돌려요
+// - markdown 백슬래시 이스케이프: \*\*굵게\*\* · \( · \# → ** · ( · #
+// - HTML 엔티티: &quot; &#x27; &#39; &amp; &lt; &gt; &nbsp; → " ' ' & < > (공백)
+// 예) I&\#x27;d → I&#x27;d → I'd   (백슬래시를 먼저 풀어야 엔티티가 보여요)
+const ENTITIES = { quot: '"', apos: "'", amp: '&', lt: '<', gt: '>', nbsp: ' ' }
+const unescapeMarkdown = (s) => s.replace(/\\([\\`*_{}[\]()#+\-.!>~|"'&])/g, '$1')
+const decodeEntities = (s) =>
+  s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, code) => {
+    if (code[0] === '#') {
+      const n = code[1].toLowerCase() === 'x' ? parseInt(code.slice(2), 16) : Number(code.slice(1))
+      return Number.isFinite(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m
+    }
+    return ENTITIES[code.toLowerCase()] ?? m
+  })
+const plain = (s = '') => decodeEntities(unescapeMarkdown(s))
+
 // 자습 설명(markdown) → 화면 데이터
 // '## 제목' 단위로 나눠 첫 부분은 요약 카드, 나머지는 항목 · 제목에 '주의'가 있으면 경고, '예시'면 예시 카드
 function toView(explanation, concept, index, total) {
   const { title, explanation_markdown: md, evidence = [] } = explanation.content
-  const sections = [{ title, lines: [] }]
+  const sections = [{ title: plain(title), lines: [] }]
   for (const line of md.split('\n')) {
     const h = line.match(/^#{2,3}\s+(.*)/)
-    if (h) sections.push({ title: h[1].trim(), lines: [] })
+    if (h) sections.push({ title: plain(h[1].trim()).replace(/\*\*(.+?)\*\*/g, '$1'), lines: [] })
     else if (!/^#\s/.test(line)) sections[sections.length - 1].lines.push(line)
   }
   // '근거: …' 줄과 '(근거: …)' 같은 인라인 표기는 가독성을 위해 빼요
   const clean = (lines) =>
     lines
+      .map(unescapeMarkdown)
       .filter((l) => !/^\s*(?:[-*·>]\s*)?[(（[]?\s*\**\s*근거\s*\**\s*[:：]/.test(l))
       .join('\n')
       .replace(/\s*[(（[]\s*근거\s*[:：][^)）\]]*[)）\]]/g, '')
       .replace(/\*\*(.+?)\*\*/g, '$1')
       .replace(/^\s*[-*]\s+/gm, '· ')
+      .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m) => decodeEntities(m))
+      // <br> (엔티티를 풀면 &lt;br&gt; 도 <br> 이 돼요) → 줄바꿈 · 앞뒤 공백도 정리
+      .replace(/[ \t]*<br\s*\/?>[ \t]*/gi, '\n')
+      // 대화 예문: 문장 중간의 화자 표시(A: "…")는 새 줄에서 시작해요
+      // (대문자 한 글자 + : + 따옴표일 때만 · 'Plan B: 다음' 같은 일반 문장은 그대로)
+      .replace(/(\S)[ \t]+(?=[A-Z]:[ \t]*["“'‘])/g, (m, prev) => (prev === '·' ? m : `${prev}\n`))
       .trim()
   const [first, ...rest] = sections
   const items = rest
@@ -162,6 +185,10 @@ export default function StudyPage() {
       ? toView(ready, concept, index, concepts.length)
       : null
   const next = concepts[index + 1]
+  // 요약 카드 제목이 페이지 제목과 같으면(공백 · 대소문자 무시) 숨겨요
+  const norm = (s = '') => s.replace(/\s+/g, ' ').trim().toLowerCase()
+  const mainTitle =
+    view?.main.title && norm(view.main.title) !== norm(view.title) ? view.main.title : null
 
   // 설명이 화면에 뜨면 '학습 완료'로 기록 (오늘 화면 1단계 개념 학습)
   const markRead = useConceptReadStore((s) => s.markRead)
@@ -324,10 +351,17 @@ export default function StudyPage() {
         </Card>
       )}
 
-      <Card tone="gradient" className="rounded-[18px] px-5 py-[18px]">
-        <p className="text-lg leading-[1.4] font-bold tracking-[-0.36px]">{view.main.title}</p>
-        <p className="text-sm leading-[1.65] whitespace-pre-line">{view.main.body}</p>
-      </Card>
+      {/* 요약 카드 · 제목이 페이지 제목(개념 이름)과 같으면 두 번 보이지 않게 빼요 · 본문도 없으면 카드째 빼요 */}
+      {(mainTitle || view.main.body) && (
+        <Card tone="gradient" className="rounded-[18px] px-5 py-[18px]">
+          {mainTitle && (
+            <p className="text-lg leading-[1.4] font-bold tracking-[-0.36px]">{mainTitle}</p>
+          )}
+          {view.main.body && (
+            <p className="text-sm leading-[1.65] whitespace-pre-line">{view.main.body}</p>
+          )}
+        </Card>
+      )}
 
       {view.points.map((p, i) => (
         <div key={p.title} className="flex flex-col gap-5">

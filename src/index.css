@@ -7,7 +7,8 @@
 
   --color-ink: #1e2842;
   --color-sub: #66708a;
-  --color-muted: #a5adc1;
+  /* 보조 글자 · 흰 배경 대비 3.6:1 (예전 #a5adc1 은 2.25:1 이라 작은 글자가 잘 안 보였어요) */
+  --color-muted: #7d869c;
   --color-line: #e8ecf3;
   --color-cool: #f5f7fb;
   --color-surface: #ffffff;
