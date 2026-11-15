@@ -327,8 +327,9 @@ export function useQuestionSet() {
 }
 
 // 채점 결과(attempt) 가 나올 때까지 attempt 를 직접 조회해요
-// /jobs 는 2초에 1회 제한이 있어 결과가 늦게 보여요 → 객관식은 1초 안에 채점되므로 짧게 확인해요
-const ATTEMPT_POLL_MS = [400, 600, 800, 1000, 1500] // 이후 1.5초 간격
+// /jobs 는 2초에 1회 제한이 있어 결과가 늦게 보여요 → 채점은 백엔드 worker 가 처리하고,
+// 객관식은 AI 호출 없이 바로 끝나므로 처음엔 짧게 확인해요
+const ATTEMPT_POLL_MS = [250, 300, 400, 500, 700, 1000] // 이후 1초 간격
 const ATTEMPT_TIMEOUT_MS = 90_000
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -355,24 +356,47 @@ async function waitForAttempt(attemptId) {
   throw { code: 'JOB_TIMEOUT', message: '채점이 오래 걸리고 있어요. 잠시 후 다시 확인해 주세요.' }
 }
 
-// 답 제출 → 채점 완료까지 기다린 뒤 채점 결과(attempt) 반환
-// 202 job.resource_id = attempt id (resource_type: attempt)
+// 채점이 끝난 attempt 면 그대로, 실패면 에러, 아직이면 attempt id 로 이어서 확인해요
+function settleAttempt(attempt) {
+  if (attempt.status === 'graded') return attempt
+  if (attempt.status === 'failed') {
+    throw { code: 'GRADE_FAILED', message: '채점에 실패했어요. 다시 제출해 주세요.', attempt }
+  }
+  return waitForAttempt(attempt.id)
+}
+
+// 답 제출 → 채점 결과(attempt) 반환
+// 응답 interceptor 가 HTTP 상태를 떼어내므로 본문 모양으로 구분해요
+// - 200 { data: attempt }       : 백엔드가 바로 채점 (객관식 · 정확 일치) → 즉시 반환
+// - 202 { data: { job } }       : worker 채점 → job.resource_id(attempt id) 로 폴링
 export function useSubmitAttempt() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ questionId, questionSetId, answer }) => {
-      const { job } = await Api.submitAttempt(questionId, {
+      const data = await Api.submitAttempt(questionId, {
         answer,
         question_set_id: questionSetId,
         model_id: await resolveModelId(),
       })
+
+      // 200 · 즉시 채점
+      if (!data?.job) return settleAttempt(data)
+
+      // 202 · 비동기 채점
+      const { job } = data
       if (job.resource_type === 'attempt' && job.resource_id) {
         return waitForAttempt(job.resource_id)
       }
       const done = await waitForJob(job)
-      return Api.getAttempt(done.resource_id)
+      return settleAttempt(await Api.getAttempt(done.resource_id))
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['question-set'] }),
+    // 채점이 끝나면 할 일 진행도(오늘 화면 2/2 등)도 바로 새로 받아요 (기본 1분 캐시를 기다리지 않게)
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['question-set'] })
+      qc.invalidateQueries({ queryKey: ['question-sets'] })
+      qc.invalidateQueries({ queryKey: ['today'] })
+      qc.invalidateQueries({ queryKey: ['plan'] })
+    },
   })
 }
 
@@ -495,11 +519,19 @@ export const useImprovementActions = () =>
     enabled: live(true),
   })
 
-export const useQuestionSets = (taskId) =>
+export const useQuestionSets = (taskId, enabled = true) =>
   useQuery({
     queryKey: ['question-sets', taskId ?? null],
     queryFn: () =>
       Api.listQuestionSets({ limit: 10, ...(taskId && { task_id: taskId }) }).then((r) => r.items),
+    enabled: live(true) && enabled,
+  })
+
+// 최근 만든 문제 세트 (할 일 연결 여부와 상관없이) · 오늘 할 일 완료 판정 · 이어 풀기에 써요
+export const useRecentQuestionSets = () =>
+  useQuery({
+    queryKey: ['question-sets', 'recent'],
+    queryFn: () => Api.listQuestionSets({ limit: 50 }).then((r) => r.items),
     enabled: live(true),
   })
 

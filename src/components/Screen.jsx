@@ -13,7 +13,11 @@ export default function Screen({ header, bottom, tabs = false, className = '', c
     <div className="mx-auto flex min-h-dvh w-full max-w-[430px] flex-col bg-white sm:shadow-[0_0_24px_rgba(30,40,66,0.08)]">
       {header && (
         <div className="sticky top-0 z-10 bg-white px-6 pt-2 pb-1">
-          {header === 'app' ? <AppHeader /> : <TopBar title={header.title} dday={header.dday} />}
+          {header === 'app' ? (
+            <AppHeader />
+          ) : (
+            <TopBar title={header.title} dday={header.dday} onBack={header.onBack} />
+          )}
         </div>
       )}
       <main className={`flex flex-1 flex-col gap-4 px-6 pt-4 pb-6 ${className}`}>{children}</main>

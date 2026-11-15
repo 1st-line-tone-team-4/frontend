@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import ApiState from '@/components/ApiState'
 import Button from '@/components/Button'
@@ -7,18 +7,20 @@ import Chip from '@/components/Chip'
 import { Field, Segment, Select } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
 import Source from '@/components/Source'
+import { TypingDots } from '@/components/voice/MicWave'
 import {
   useBilling,
   useConcepts,
   useCreateQuestionSet,
   useDday,
   useMaterial,
-  useQuestionSets,
+  useRecentQuestionSets,
   useToday,
   useUnits,
 } from '@/hooks/useStudyApi'
 import { useStudyStore } from '@/stores/useStudyStore'
 import { pageRange } from '@/utils/format'
+import { resumableSet, setsForTask } from '@/utils/quizProgress'
 
 /**
  * A-03 개념 확인 문제 만들기 · mode='advanced' 면 A-08 심화 문제
@@ -102,9 +104,12 @@ export default function QuizCreatePage({ mode = 'basic' }) {
     : versions.map((v) => v.id).filter((id) => !excluded.includes(id))
   const chosen = versions.filter((v) => versionIds.includes(v.id))
 
-  // 문제 수: 무료 5~10문제 · 유료 구독 2~20문제
+  // 문제 수: 무료 5~10문제 · 유료 구독 2~20문제 · 오늘 할 일에서 만들면 남은 목표(예: 2문제)부터 고를 수 있어요
+  // 목표보다 많이 만들면 명세상 task_id 를 못 보내지만, 같은 개념으로 만든 세트라
+  // 다 풀면 오늘 화면에서 완료로 표시돼요 (utils/quizProgress)
   const paid = PAID_STATUS.includes(billing.data?.subscription_status)
-  const minCount = paid ? MIN_COUNT_PAID : MIN_COUNT_FREE
+  const planMin = paid ? MIN_COUNT_PAID : MIN_COUNT_FREE
+  const minCount = linked ? Math.max(1, Math.min(planMin, remaining)) : planMin
   const maxCount = paid ? MAX_COUNT_PAID : MAX_COUNT_FREE
   const clamp = (n) => Math.min(Math.max(n, minCount), maxCount)
   const defaultCount = linked ? clamp(remaining) : fromReview ? clamp(5) : clamp(10)
@@ -112,8 +117,21 @@ export default function QuizCreatePage({ mode = 'basic' }) {
   // 명세: task_id 를 보내면 count 는 남은 목표 이하 → 넘으면 할 일과 연결하지 않고 따로 만들어요
   const countsToTask = linked && count <= remaining
 
-  const sets = useQuestionSets(linked ? task.id : undefined)
+  // 최근 만든 문제 · 오늘 할 일에서 왔으면 그 할 일의 세트(연결 또는 같은 개념)만
+  const recent = useRecentQuestionSets()
+  const sets = linked ? setsForTask(task, recent.data) : (recent.data ?? [])
   const canSubmit = !!unit && versionIds.length > 0 && !create.isPending
+
+  // 오늘 화면에서 '퀴즈 풀기'로 들어오면(?resume=1) 이 할 일의 세트 중 덜 푼 세트로 바로 이어 풀어요
+  // 만들기 화면은 기록에서 바꿔치기(replace)해서, 풀이 화면의 뒤로가기는 오늘 화면으로 가요
+  const resumeTaskId = params.get('resume') ? params.get('task') : null
+  const resumeTask = today.data?.tasks.find((t) => t.id === resumeTaskId)
+  const resumeId = resumeTaskId ? resumableSet(resumeTask, recent.data)?.id : undefined
+  useEffect(() => {
+    if (!resumeId) return
+    setIds({ questionSetId: resumeId })
+    navigate(`/quiz/solve?kind=${kind}`, { replace: true })
+  }, [resumeId, kind, navigate, setIds])
 
   const onCreate = () => {
     if (!canSubmit) return
@@ -152,6 +170,15 @@ export default function QuizCreatePage({ mode = 'basic' }) {
 
   const header = { title: advanced ? '심화 문제' : fromReview ? '보충 문제' : '개념 확인 퀴즈', dday }
 
+  // 이어 풀 세트를 찾는 중이거나 찾아서 넘어가는 중
+  if (resumeTaskId && (today.isLoading || recent.isLoading || resumeId)) {
+    return (
+      <Screen header={header}>
+        <ApiState query={{ isLoading: true }} />
+      </Screen>
+    )
+  }
+
   // 자료 · 단원 · 개념을 불러오는 중이거나, 확정한 개념이 없을 때
   if (!materialId || units.length === 0) {
     const loading = unitsQuery.isLoading || conceptsQuery.isLoading
@@ -176,9 +203,14 @@ export default function QuizCreatePage({ mode = 'basic' }) {
       header={header}
       bottom={
         <Button onClick={onCreate} variant={canSubmit ? 'primary' : 'disabled'}>
-          {create.isPending
-            ? '문제를 만들고 있어요…'
-            : `${count}문제 만들기`}
+          {create.isPending ? (
+            <>
+              <TypingDots className="h-[21px]" />
+              <span className="sr-only">문제를 만들고 있어요</span>
+            </>
+          ) : (
+            `${count}문제 만들기`
+          )}
         </Button>
       }
       className="gap-[22px]"
@@ -301,9 +333,7 @@ export default function QuizCreatePage({ mode = 'basic' }) {
         )}
         {linked && (
           <p className="text-xs text-muted">
-            {countsToTask
-              ? '푼 문제는 오늘 할 일 진행도에 반영돼요.'
-              : `오늘 할 일 남은 목표(${remaining}문제)보다 많아서 진행도와 별도로 저장돼요.`}
+            이 문제를 끝까지 풀면 오늘 할 일이 완료로 표시돼요.
           </p>
         )}
       </div>
@@ -325,13 +355,13 @@ export default function QuizCreatePage({ mode = 'basic' }) {
       )}
 
       {/* 내가 만든 문제 (GET /question-sets) · 이어 풀기 */}
-      {(sets.data ?? []).length > 0 && (
+      {sets.length > 0 && (
         <div className="flex flex-col gap-[10px]">
           <p className="text-[13px] leading-[1.3] font-bold">
             {linked ? '이 할 일로 만든 문제' : '최근 만든 문제'}
           </p>
           <ul className="flex flex-col">
-            {sets.data.slice(0, 5).map((set, i) => (
+            {sets.slice(0, 5).map((set, i) => (
               <li key={set.id}>
                 {i > 0 && <Divider />}
                 <button

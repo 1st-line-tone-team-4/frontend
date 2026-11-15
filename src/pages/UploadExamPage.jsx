@@ -45,7 +45,7 @@ const STATUS_CHIP = {
 
 const ANALYSIS_STEPS = ['파일 확인', '문서 구조 분석', '개념과 근거 정리']
 
-function MaterialAnalyzingView({ status }) {
+function MaterialAnalyzingView({ status, onBack }) {
   const [step, setStep] = useState(status === 'processing' ? 1 : 0)
 
   useEffect(() => {
@@ -56,7 +56,7 @@ function MaterialAnalyzingView({ status }) {
   }, [])
 
   return (
-    <Screen header={{ title: '자료 분석 중' }} className="gap-8">
+    <Screen header={{ title: '자료 분석 중', onBack }} className="gap-8">
       <PageTitle
         title="자료를 분석하고 있어요"
         desc="AI가 문서의 구조와 개념을 정리하고 있어요. 분석이 끝나면 자동으로 다음 단계로 넘어갈 수 있어요."
@@ -209,6 +209,7 @@ function buildReadingPlan(segments, examDate) {
 // 03 자료 업로드 · 시험 선택
 export default function UploadExamPage() {
   const navigate = useNavigate()
+  const handleBack = () => navigate(-1)
   const { state } = useLocation()
   const fileRef = useRef(null)
   const savedExamDate = useStudyStore((s) => s.examDate)
@@ -303,12 +304,12 @@ export default function UploadExamPage() {
   }
 
   if (isAnalyzing) {
-    return <MaterialAnalyzingView status={material?.processing_status ?? 'queued'} />
+    return <MaterialAnalyzingView status={material?.processing_status ?? 'queued'} onBack={handleBack} />
   }
 
   return (
     <Screen
-      header={{ title: '강의자료 업로드' }}
+      header={{ title: '강의자료 업로드', onBack: () => navigate(-1) }}
       bottom={
         <>
           <Button onClick={onSubmit} disabled={createGoal.isPending}>

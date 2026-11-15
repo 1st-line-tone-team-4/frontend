@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import iconCheck from '@/assets/icons/check-primary-18.svg'
 import iconX from '@/assets/icons/x-error.svg'
@@ -10,6 +10,7 @@ import Chip from '@/components/Chip'
 import { Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
 import SourceChip from '@/components/SourceChip'
+import { TypingDots } from '@/components/voice/MicWave'
 import { QUIZ } from '@/data/flow'
 import { useDday, useQuestionSet, useSubmitAttempt } from '@/hooks/useStudyApi'
 
@@ -34,7 +35,12 @@ const mockQuestion = (i, n) => {
 }
 
 // 풀이 종류 라벨 (09 상단)
-const KIND = { check: '개념 확인 퀴즈', supplement: '보충', advanced: '심화', retry: '오답 다시 풀기' }
+const KIND = {
+  check: '개념 확인 퀴즈',
+  supplement: '보충',
+  advanced: '심화',
+  retry: '오답 다시 풀기',
+}
 
 const marks = ['①', '②', '③', '④', '⑤', '⑥']
 const LEVEL = { easy: '하', medium: '중', hard: '상' }
@@ -68,6 +74,8 @@ function toResult(attempt) {
 }
 
 // 09 개념 확인 풀이
+// 보기를 누르면 고르기만 해요 (다음 문제를 누르기 전까지 바꿀 수 있어요)
+// 다음 문제를 누르면 그때 제출하고 바로 넘어가요 · 채점은 뒤에서 이어지고, 결과 보기에서 모두 기다려요
 export default function QuizSolvePage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
@@ -79,10 +87,10 @@ export default function QuizSolvePage() {
   const setQuery = useQuestionSet()
   const submit = useSubmitAttempt()
   const [index, setIndex] = useState(null)
-  const [results, setResults] = useState({}) // 이번에 제출한 채점 결과 (questionId → attempt)
+  const [pickedId, setPickedId] = useState(null) // 지금 문제에서 고른 보기 (아직 제출 전)
   const [text, setText] = useState('')
-  const [pendingId, setPendingId] = useState(null) // 채점 중인 보기 id
-  const resultRef = useRef(null)
+  const [finishing, setFinishing] = useState(false) // 결과 보기 전 남은 채점을 기다리는 중
+  const grading = useRef(new Map()) // 이번에 제출한 문제 → 채점 promise (questionId → { index, promise })
 
   const set = setQuery.data
   const items = set ? [...set.items].sort((a, b) => a.ordinal - b.ordinal) : []
@@ -99,23 +107,15 @@ export default function QuizSolvePage() {
     : item
       ? toQuestion(item, items.length)
       : null
-  const mockPicked = mockAnswers[mockIndex]
-  const result = USE_MOCK
-    ? mockPicked && {
-        pickedId: mockPicked,
-        correctId: question.answerId,
-        isCorrect: mockPicked === question.answerId,
-        explanation: question.explanation,
-      }
-    : item && toResult(results[item.question.id] ?? item.latest_attempt)
+  // 예전에 이미 풀어 둔 문제는 그 결과를 보여주고 다시 고를 수 없어요
+  const result =
+    !USE_MOCK && item && !grading.current.has(item.question.id)
+      ? toResult(item.latest_attempt)
+      : null
 
-  // 채점 결과가 나오면 해설이 보이도록 스크롤
-  const resultKey = result ? `${current}-${mockIndex}` : null
-  useEffect(() => {
-    if (resultKey) resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [resultKey])
-
-  const header = { title: `${KIND[kind]} 풀이`, dday }
+  // 뒤로가기 = 이전 화면 (문제 만들기 · 오늘) · 주소로 바로 열었으면 이전 기록이 없어서 오늘 화면으로
+  const goBack = () => (window.history.state?.idx > 0 ? navigate(-1) : navigate('/today'))
+  const header = { title: `${KIND[kind]} 풀이`, dday, onBack: goBack }
   if (!question) {
     return (
       <Screen header={header}>
@@ -128,53 +128,93 @@ export default function QuizSolvePage() {
     )
   }
 
-  const answer = (payload) => {
-    if (USE_MOCK)
-      return setMockAnswers((a) => ({ ...a, [mockIndex]: payload.selected_option_ids[0] }))
-    setPendingId(payload.selected_option_ids?.[0] ?? null)
-    submit.mutate(
-      { questionId: item.question.id, questionSetId: set.id, answer: payload },
-      {
-        onSuccess: (attempt) => setResults((r) => ({ ...r, [item.question.id]: attempt })),
-        onError: (err) => alert(err.message),
-        onSettled: () => setPendingId(null),
-      },
-    )
-  }
+  const answered = !!result // 예전 풀이 결과가 있는 문제
+  const draft =
+    question.type === 'multiple_choice'
+      ? pickedId && { type: 'multiple_choice', selected_option_ids: [pickedId] }
+      : text.trim() && { type: 'short_answer', text: text.trim() }
+  const canGoNext = !finishing && (answered || !!draft)
 
-  const answered = !!result
   const choiceClass = (id) => {
     if (answered && id === result.correctId)
       return 'border-[1.5px] border-primary bg-primary-soft font-bold'
     if (answered && id === result.pickedId)
       return 'border-[1.5px] border-error bg-error-soft font-bold'
-    if (submit.isPending && id === pendingId)
-      return 'border-[1.5px] border-primary/60 bg-primary-soft/60 font-bold'
+    if (!answered && id === pickedId)
+      return 'border-[1.5px] border-primary bg-primary-soft font-bold'
     return 'border border-line bg-white font-medium'
   }
   const pickedIndex = question.choices.findIndex((c) => c.id === result?.pickedId)
   const correctIndex = question.choices.findIndex((c) => c.id === result?.correctId)
-  const hasNext = USE_MOCK ? mockIndex < mockTotal - 1 : current < items.length - 1
+  // 다음으로 풀 문제 · 실패해서 다시 푼 뒤에는 이미 제출한 문제를 건너뛰어요
+  const nextIndex = USE_MOCK
+    ? null
+    : items.findIndex((it, i) => i > current && !grading.current.has(it.question.id))
+  const hasNext = USE_MOCK ? mockIndex < mockTotal - 1 : nextIndex >= 0
+
+  // 고른 답을 제출해요 · 기다리지 않고 채점 promise 만 모아 둬요
+  const submitDraft = () => {
+    const qid = item.question.id
+    const promise = submit.mutateAsync({ questionId: qid, questionSetId: set.id, answer: draft })
+    promise.catch(() => {}) // 실패는 결과 보기에서 한 번에 알려요
+    grading.current.set(qid, { index: current, promise })
+  }
+
+  // 남은 채점을 모두 기다린 뒤 결과로 · 실패한 문제가 있으면 그 문제로 돌아가 다시 풀어요
+  const finish = async () => {
+    setFinishing(true)
+    const entries = [...grading.current.entries()]
+    const outcomes = await Promise.allSettled(entries.map(([, g]) => g.promise))
+    const failed = entries.filter((_, i) => outcomes[i].status === 'rejected')
+    if (failed.length) {
+      failed.forEach(([qid]) => grading.current.delete(qid))
+      const first = failed.map(([, g]) => g.index).sort((a, b) => a - b)[0]
+      setFinishing(false)
+      setIndex(first)
+      alert(`${first + 1}번 문제 채점에 실패했어요. 답을 다시 골라 주세요.`)
+      return
+    }
+    await setQuery.refetch()
+    navigate(`/quiz/result?kind=${kind}`)
+  }
 
   // 마지막 문제 뒤에는 A-04 결과로 · 약점은 전체 결과에서 뽑아요
   const goNext = () => {
+    if (!canGoNext) return
+    setPickedId(null)
     setText('')
-    if (hasNext) return USE_MOCK ? setMockIndex((i) => i + 1) : setIndex(current + 1)
-    const answers = USE_MOCK
-      ? Array.from({ length: mockTotal }, (_, i) => {
-          const q = mockQuestion(i, mockTotal)
-          return { ...q, pickedId: mockAnswers[i], isCorrect: mockAnswers[i] === q.answerId }
-        })
-      : null
-    navigate(`/quiz/result?kind=${kind}`, { state: { answers } })
+    if (USE_MOCK) {
+      const all = draft
+        ? { ...mockAnswers, [mockIndex]: draft.selected_option_ids[0] }
+        : mockAnswers
+      setMockAnswers(all)
+      if (hasNext) return setMockIndex((i) => i + 1)
+      const answers = Array.from({ length: mockTotal }, (_, i) => {
+        const q = mockQuestion(i, mockTotal)
+        return { ...q, pickedId: all[i], isCorrect: all[i] === q.answerId }
+      })
+      return navigate(`/quiz/result?kind=${kind}`, { state: { answers } })
+    }
+    if (!answered) submitDraft()
+    if (hasNext) return setIndex(nextIndex)
+    finish()
   }
 
   return (
     <Screen
       header={header}
       bottom={
-        <Button variant={answered ? 'primary' : 'disabled'} onClick={goNext}>
-          {hasNext ? '다음 문제' : '결과 보기'}
+        <Button variant={canGoNext ? 'primary' : 'disabled'} onClick={goNext}>
+          {finishing ? (
+            <>
+              <TypingDots className="h-[21px]" />
+              <span className="sr-only">채점 결과를 모으고 있어요</span>
+            </>
+          ) : hasNext ? (
+            '다음 문제'
+          ) : (
+            '결과 보기'
+          )}
         </Button>
       }
     >
@@ -214,56 +254,47 @@ export default function QuizSolvePage() {
             <li key={c.id}>
               <button
                 type="button"
-                disabled={answered || submit.isPending}
-                onClick={() => answer({ type: 'multiple_choice', selected_option_ids: [c.id] })}
-                className={`flex w-full items-center justify-between rounded-[14px] py-[14px] pr-[14px] pl-4 text-left text-[15px] leading-[1.3] ${choiceClass(c.id)}`}
+                disabled={answered || finishing}
+                aria-pressed={!answered && c.id === pickedId}
+                onClick={() => setPickedId(c.id)}
+                className={`flex w-full items-center justify-between gap-2 rounded-[14px] py-[14px] pr-[14px] pl-4 text-left text-[15px] leading-[1.45] ${choiceClass(c.id)}`}
               >
-                <span className="whitespace-pre">{`${marks[i]}  ${c.text}`}</span>
+                {/* 긴 보기는 줄바꿈 · 둘째 줄부터는 번호 뒤에 맞춰 들여써요 */}
+                <span className="flex min-w-0 flex-1 gap-2">
+                  <span className="shrink-0">{marks[i]}</span>
+                  <span className="min-w-0 break-keep [overflow-wrap:anywhere]">{c.text}</span>
+                </span>
                 {answered && c.id === result.correctId && (
-                  <img src={iconCheck} alt="정답" className="size-[18px]" />
+                  <img src={iconCheck} alt="정답" className="size-[18px] shrink-0" />
                 )}
                 {answered && c.id === result.pickedId && !result.isCorrect && (
-                  <img src={iconX} alt="오답" className="size-[18px]" />
+                  <img src={iconX} alt="오답" className="size-[18px] shrink-0" />
                 )}
               </button>
             </li>
           ))}
         </ul>
       ) : (
+        // 엔터 = 다음 문제 (답은 다음 문제를 누를 때 제출돼요)
         <form
-          className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault()
-            if (text.trim()) answer({ type: 'short_answer', text: text.trim() })
+            goNext()
           }}
         >
-          <div className="min-w-0 flex-1">
-            <Input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              disabled={answered || submit.isPending}
-              placeholder="답을 입력해 주세요"
-            />
-          </div>
-          {/* Button 기본 w-full 을 덮어써야 입력칸이 남은 너비를 차지해요 */}
-          <Button
-            type="submit"
-            className="w-auto! shrink-0 px-5"
-            disabled={answered || submit.isPending || !text.trim()}
-          >
-            제출
-          </Button>
+          <Input
+            value={answered ? (item.latest_attempt?.answer.text ?? '') : text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={answered || finishing}
+            placeholder="답을 입력해 주세요"
+          />
         </form>
       )}
 
-      {submit.isPending && (
-        <p className="text-center text-xs text-muted">
-          {question.type === 'multiple_choice' ? '채점하고 있어요…' : 'AI가 답을 채점하고 있어요… (10초 정도 걸려요)'}
-        </p>
-      )}
+      {finishing && <p className="text-center text-xs text-muted">남은 채점을 기다리고 있어요…</p>}
 
       {answered && (
-        <div ref={resultRef} className="flex scroll-mb-28 flex-col gap-2 rounded-[14px] bg-cool px-4 py-[14px]">
+        <div className="flex flex-col gap-2 rounded-[14px] bg-cool px-4 py-[14px]">
           <div>
             <Chip tone={result.isCorrect ? 'primary' : 'error'}>
               {result.isCorrect
@@ -282,7 +313,6 @@ export default function QuizSolvePage() {
           {question.page && <SourceChip page={question.page} label={`근거 p.${question.page}`} />}
         </div>
       )}
-
     </Screen>
   )
 }

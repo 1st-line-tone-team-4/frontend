@@ -11,7 +11,14 @@ import Button from '@/components/Button'
 import Chip from '@/components/Chip'
 import { toast } from '@/components/Overlay'
 import Screen from '@/components/Screen'
-import { useDday, useToday, useUpdatePlanTask, useWeaknesses } from '@/hooks/useStudyApi'
+import {
+  useDday,
+  useRecentQuestionSets,
+  useToday,
+  useUpdatePlanTask,
+  useWeaknesses,
+} from '@/hooks/useStudyApi'
+import { quizProgress } from '@/utils/quizProgress'
 import { useConceptReadStore } from '@/stores/useConceptReadStore'
 import { useProfileStore } from '@/stores/useProfileStore'
 
@@ -60,11 +67,12 @@ const DONE = (label) => ({ label, tone: 'outline', check: true })
 const TODO = (label) => ({ label, tone: 'primary' })
 const SKIPPED = { label: '건너뜀', tone: 'cool' }
 
-function quizChip(t) {
-  if (t.status === 'completed') return DONE(`${t.target_count}/${t.target_count} 완료`)
+// 퀴즈 칩 · 숫자(2/2) 대신 상태만 보여줘요
+// 완료 = 서버 진행도 완료 또는 이 할 일의 개념으로 만든 세트를 끝까지 풀었을 때 (utils/quizProgress)
+function quizChip(t, progress) {
   if (t.status === 'skipped') return SKIPPED
-  if (t.completed_count > 0)
-    return { label: `${t.completed_count}/${t.target_count} 풀이 중`, tone: 'secondary' }
+  if (progress === 'done') return DONE('완료')
+  if (progress === 'started') return { label: '풀이 중', tone: 'secondary' }
   return TODO('퀴즈 풀기')
 }
 
@@ -79,7 +87,7 @@ function taskAction(t) {
 
 // API(/today) + 읽은 개념 → 단계 카드 3개(+ 복습)
 // read[id]: 숫자 = 읽음, 'skipped' = 이미 알아서 건너뜀
-function toView(today, read, weaknesses = []) {
+function toView(today, read, weaknesses = [], sets = []) {
   const tasks = [...today.tasks].sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
   const byType = (type) => tasks.filter((t) => t.task_type === type)
   const concepts = [
@@ -114,16 +122,22 @@ function toView(today, read, weaknesses = []) {
     {
       key: 'quiz',
       title: '개념 확인 퀴즈',
-      rows: byType('solve').map((t) => ({
-        id: t.id,
-        ids: t.concept_version_ids,
-        name: conceptNames(t),
-        done: t.status === 'completed',
-        closed: isClosed(t),
-        chip: quizChip(t),
-        action: taskAction(t),
-        to: `/quiz?task=${t.id}`,
-      })),
+      rows: byType('solve').map((t) => {
+        const progress = quizProgress(t, sets)
+        const done = t.status !== 'skipped' && progress === 'done'
+        return {
+          id: t.id,
+          ids: t.concept_version_ids,
+          name: conceptNames(t),
+          done,
+          closed: done || isClosed(t),
+          chip: quizChip(t, progress),
+          // 프론트에서만 완료로 본 할 일은 건너뛰기를 숨겨요
+          action: done && t.status !== 'completed' ? null : taskAction(t),
+          // 덜 푼 문제가 있으면 만들기 화면에서 바로 이어 풀기로 넘어가요
+          to: `/quiz?task=${t.id}&resume=1`,
+        }
+      }),
     },
     {
       key: 'teach',
@@ -346,6 +360,7 @@ function StageCard({ stage, number, active, open, onToggle }) {
 export default function TodayPage() {
   const today = useToday()
   const weaknesses = useWeaknesses()
+  const recentSets = useRecentQuestionSets()
   const dday = useDday()
   const read = useConceptReadStore((s) => s.read)
   const name = useProfileStore((state) => state.name)
@@ -356,7 +371,7 @@ export default function TodayPage() {
   const view = USE_MOCK
     ? toView(DUMMY_TODAY, { ...DUMMY_READ, ...read }, DUMMY_WEAK)
     : today.data?.tasks.length
-      ? toView(today.data, read, weaknesses.data)
+      ? toView(today.data, read, weaknesses.data, recentSets.data)
       : null
 
   if (!view) {

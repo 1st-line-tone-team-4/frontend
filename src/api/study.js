@@ -54,7 +54,7 @@ export const listQuestionSets = (params) => api.get('/question-sets', { params }
 // 한 문제의 풀이 기록
 export const listQuestionAttempts = (questionId, params) =>
   api.get(`/questions/${questionId}/attempts`, { params }).then(unwrapList)
-// body: { answer: { type: 'multiple_choice', selected_option_ids } | { type: 'short_answer', text }, question_set_id, model_id } → { job }
+// body: { answer: { type: 'multiple_choice', selected_option_ids } | { type: 'short_answer', text }, question_set_id, model_id } → 202 { job } | 200 attempt (즉시 채점)
 export const submitAttempt = (questionId, body) =>
   api.post(`/questions/${questionId}/attempts`, body).then(unwrap)
 export const getAttempt = (attemptId) => api.get(`/attempts/${attemptId}`).then(unwrap)
