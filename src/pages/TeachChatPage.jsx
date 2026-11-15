@@ -148,7 +148,21 @@ export default function TeachChatPage() {
   })
 
   // 메시지가 아직 없거나 응답이 비어도 빈 배열로 (API 는 unwrapList 로 { data } → items 를 꺼내요)
-  const messages = (USE_MOCK ? mock?.messages : toBubbles(messagesQuery.data ?? [])) ?? []
+  // 실제 모드: 서버에는 첫 인사가 없어서, 민지가 먼저 무엇을 배우고 싶은지 묻는 말풍선을 화면에만 붙여요
+  // (서버 메시지가 아니라 질문 수 · 마지막 메시지 판단에는 영향이 없어요)
+  const serverBubbles = USE_MOCK ? null : toBubbles(messagesQuery.data ?? [])
+  const greeting = {
+    id: 'local-greeting',
+    from: 'student',
+    kind: 'greeting',
+    text: STUDENT_GREETING(concept || session.data?.concept_name || '이 개념'),
+  }
+  const messages =
+    (USE_MOCK
+      ? mock?.messages
+      : messagesQuery.isSuccess && serverBubbles[0]?.from !== 'student'
+        ? [greeting, ...serverBubbles]
+        : serverBubbles) ?? []
   const questionCount = messages.filter((m) => m.kind === 'question').length
   const last = messages[messages.length - 1]
   const status = USE_MOCK ? 'active' : session.data?.status

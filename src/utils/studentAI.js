@@ -44,7 +44,7 @@ const PROBES = [
 ]
 
 export const STUDENT_GREETING = (concept = '현재완료') =>
-  `처음 배워요. ${concept}가 무엇인지 알려주실래요? 쉬운 말로 설명해 주시면 중간중간 물어볼게요.`
+  `안녕하세요! 저는 '${concept}'에 대해 처음 배워요. 이게 뭔지 알려주실래요? 쉬운 말로 설명해 주시면 궁금한 건 중간중간 물어볼게요.`
 
 /**
  * state: { asked: string[](이미 한 질문), weak: string[](약점 태그, 우선순위 순), mode: 'explaining'|'answering' }

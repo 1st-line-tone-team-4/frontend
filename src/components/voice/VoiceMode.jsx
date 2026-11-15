@@ -200,9 +200,10 @@ export default function VoiceMode({
     <div className="animate-fade-in fixed inset-0 z-30 flex justify-center bg-[linear-gradient(180deg,#ffffff_0%,#f3f6fe_55%,#e9efff_100%)]">
       <div className="flex h-dvh w-full max-w-[430px] flex-col px-6 pt-3 pb-[max(28px,env(safe-area-inset-bottom))]">
         {/* 상단 */}
-        <div className="flex h-10 items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="relative flex size-2">
+        {/* 긴 개념 이름은 칩 안에서 … 로 줄이고, 설명 마치기 버튼은 항상 한 줄로 */}
+        <div className="flex h-10 items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="relative flex size-2 shrink-0">
               {phase !== 'error' && phase !== 'muted' && (
                 <span className="absolute inline-flex size-full animate-ping rounded-full bg-error/60" />
               )}
@@ -210,17 +211,19 @@ export default function VoiceMode({
                 className={`relative inline-flex size-2 rounded-full ${phase === 'muted' ? 'bg-muted' : 'bg-error'}`}
               />
             </span>
-            <span className="text-[13px] font-bold tabular-nums text-sub">{fmt(elapsed)}</span>
+            <span className="shrink-0 text-[13px] font-bold tabular-nums text-sub">{fmt(elapsed)}</span>
             {concept && (
-              <Chip tone="white" className="border border-line">
-                {concept}
+              <Chip tone="white" className="min-w-0 shrink! border border-line">
+                <span className="truncate" title={concept}>
+                  {concept}
+                </span>
               </Chip>
             )}
           </div>
           <button
             type="button"
             onClick={() => close(onFinish)}
-            className="rounded-full bg-white px-[14px] py-2 text-[13px] leading-[1.2] font-bold text-primary shadow-[0_2px_10px_rgba(30,40,66,0.08)]"
+            className="shrink-0 rounded-full bg-white px-[14px] py-2 text-[13px] leading-[1.2] font-bold whitespace-nowrap text-primary shadow-[0_2px_10px_rgba(30,40,66,0.08)]"
           >
             설명 마치기
           </button>
@@ -251,7 +254,7 @@ export default function VoiceMode({
         <div className="flex min-h-[148px] flex-col justify-end pb-6" aria-live="polite">
           {error ? (
             <div className="animate-pop-in flex flex-col items-center gap-3 rounded-[18px] bg-white p-5 text-center shadow-[0_8px_30px_rgba(30,40,66,0.08)]">
-              <p className="text-sm leading-[1.6] whitespace-pre-line text-ink">{error}</p>
+              <p className="text-sm leading-[1.6] break-keep whitespace-pre-line text-ink">{error}</p>
               <button type="button" onClick={onClose} className="text-sm font-bold text-primary">
                 글로 설명하기 →
               </button>
@@ -307,7 +310,7 @@ export default function VoiceMode({
             <XIcon size={24} />
           </RoundButton>
         </div>
-        <p className="mt-3 text-center text-xs leading-[1.4] text-muted">
+        <p className="mt-3 text-center text-xs leading-[1.4] break-keep text-muted">
           2초 정도 멈추면 {student.name}에게 전달돼요 · ✕를 누르면 대화 화면으로 돌아가요
         </p>
       </div>
