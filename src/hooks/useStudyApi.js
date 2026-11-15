@@ -317,12 +317,19 @@ export function useCreateQuestionSet() {
   })
 }
 
-export function useQuestionSet() {
+// untilGraded: 채점 중인 답이 남아 있으면 2초마다 다시 받아요 (결과 화면)
+export function useQuestionSet({ untilGraded = false } = {}) {
   const setId = useStudyStore((s) => s.questionSetId)
   return useQuery({
     queryKey: ['question-set', setId],
     queryFn: () => Api.getQuestionSet(setId),
     enabled: live(setId),
+    refetchInterval: untilGraded
+      ? (query) =>
+          query.state.data?.items?.some((it) => it.latest_attempt?.status === 'grading')
+            ? 2000
+            : false
+      : false,
   })
 }
 
@@ -371,6 +378,23 @@ export function useSubmitAttempt() {
       }
       const done = await waitForJob(job)
       return Api.getAttempt(done.resource_id)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['question-set'] }),
+  })
+}
+
+// 답만 제출하고 채점은 기다리지 않아요 (202 를 받으면 바로 끝)
+// 채점은 서버 워커가 백그라운드로 하고, 결과 화면이 문제 세트 조회로 한꺼번에 받아요
+export function useSubmitAttemptInBackground() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ questionId, questionSetId, answer }) => {
+      const { job } = await Api.submitAttempt(questionId, {
+        answer,
+        question_set_id: questionSetId,
+        model_id: await resolveModelId(),
+      })
+      return job
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['question-set'] }),
   })

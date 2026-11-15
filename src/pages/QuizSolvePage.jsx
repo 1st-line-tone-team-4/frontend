@@ -11,7 +11,7 @@ import { Input } from '@/components/Field'
 import Screen, { PageTitle } from '@/components/Screen'
 import SourceChip from '@/components/SourceChip'
 import { QUIZ } from '@/data/flow'
-import { useDday, useQuestionSet, useSubmitAttempt } from '@/hooks/useStudyApi'
+import { useDday, useQuestionSet, useSubmitAttemptInBackground } from '@/hooks/useStudyApi'
 
 // 더미 (목 모드) · 개념 확인 문제를 n개로 늘려요
 const mockQuestion = (i, n) => {
@@ -77,9 +77,10 @@ export default function QuizSolvePage() {
   const [mockAnswers, setMockAnswers] = useState({}) // index → 고른 보기 id
   const dday = useDday()
   const setQuery = useQuestionSet()
-  const submit = useSubmitAttempt()
+  const submit = useSubmitAttemptInBackground()
   const [index, setIndex] = useState(null)
-  const [results, setResults] = useState({}) // 이번에 제출한 채점 결과 (questionId → attempt)
+  // 이번에 제출한 답 (questionId → answer) · 채점은 백그라운드라 결과는 결과 화면에서 한꺼번에 봐요
+  const [submitted, setSubmitted] = useState({})
   const [text, setText] = useState('')
   const [pendingId, setPendingId] = useState(null) // 채점 중인 보기 id
   const resultRef = useRef(null)
@@ -107,7 +108,15 @@ export default function QuizSolvePage() {
         isCorrect: mockPicked === question.answerId,
         explanation: question.explanation,
       }
-    : item && toResult(results[item.question.id] ?? item.latest_attempt)
+    : item && !submitted[item.question.id]
+      ? toResult(item.latest_attempt)
+      : null
+  // 제출만 하고 채점을 기다리는 중 (이번에 냈거나, 이전에 내고 아직 채점 중)
+  const sentAnswer = USE_MOCK
+    ? null
+    : item &&
+      (submitted[item.question.id] ??
+        (item.latest_attempt?.status === 'grading' ? item.latest_attempt.answer : null))
 
   // 채점 결과가 나오면 해설이 보이도록 스크롤
   const resultKey = result ? `${current}-${mockIndex}` : null
@@ -132,21 +141,29 @@ export default function QuizSolvePage() {
     if (USE_MOCK)
       return setMockAnswers((a) => ({ ...a, [mockIndex]: payload.selected_option_ids[0] }))
     setPendingId(payload.selected_option_ids?.[0] ?? null)
+    const questionId = item.question.id
     submit.mutate(
-      { questionId: item.question.id, questionSetId: set.id, answer: payload },
+      { questionId, questionSetId: set.id, answer: payload },
       {
-        onSuccess: (attempt) => setResults((r) => ({ ...r, [item.question.id]: attempt })),
+        // 접수되면 채점을 기다리지 않고 바로 다음 문제로 (마지막이면 결과 화면)
+        onSuccess: () => {
+          setSubmitted((s) => ({ ...s, [questionId]: payload }))
+          goNext()
+        },
         onError: (err) => alert(err.message),
         onSettled: () => setPendingId(null),
       },
     )
   }
 
-  const answered = !!result
+  const sentPickedId = sentAnswer?.selected_option_ids?.[0]
+  const answered = !!result || !!sentAnswer
   const choiceClass = (id) => {
-    if (answered && id === result.correctId)
+    if (sentAnswer && id === sentPickedId)
+      return 'border-[1.5px] border-primary/60 bg-primary-soft/60 font-bold'
+    if (result && id === result.correctId)
       return 'border-[1.5px] border-primary bg-primary-soft font-bold'
-    if (answered && id === result.pickedId)
+    if (result && id === result.pickedId)
       return 'border-[1.5px] border-error bg-error-soft font-bold'
     if (submit.isPending && id === pendingId)
       return 'border-[1.5px] border-primary/60 bg-primary-soft/60 font-bold'
@@ -219,10 +236,10 @@ export default function QuizSolvePage() {
                 className={`flex w-full items-center justify-between rounded-[14px] py-[14px] pr-[14px] pl-4 text-left text-[15px] leading-[1.3] ${choiceClass(c.id)}`}
               >
                 <span className="whitespace-pre">{`${marks[i]}  ${c.text}`}</span>
-                {answered && c.id === result.correctId && (
+                {result && c.id === result.correctId && (
                   <img src={iconCheck} alt="정답" className="size-[18px]" />
                 )}
-                {answered && c.id === result.pickedId && !result.isCorrect && (
+                {result && c.id === result.pickedId && !result.isCorrect && (
                   <img src={iconX} alt="오답" className="size-[18px]" />
                 )}
               </button>
@@ -256,13 +273,16 @@ export default function QuizSolvePage() {
         </form>
       )}
 
-      {submit.isPending && (
-        <p className="text-center text-xs text-muted">
-          {question.type === 'multiple_choice' ? '채점하고 있어요…' : 'AI가 답을 채점하고 있어요… (10초 정도 걸려요)'}
-        </p>
+      {submit.isPending && <p className="text-center text-xs text-muted">답을 보내고 있어요…</p>}
+
+      {sentAnswer && !submit.isPending && (
+        <div className="flex flex-col gap-1 rounded-[14px] bg-cool px-4 py-[14px] text-sm leading-[1.6]">
+          {sentAnswer.text && <p className="font-bold">제출한 답: {sentAnswer.text}</p>}
+          <p>답을 제출했어요. 채점은 뒤에서 진행하고, 마지막 문제를 풀면 결과를 한꺼번에 보여드려요.</p>
+        </div>
       )}
 
-      {answered && (
+      {result && (
         <div ref={resultRef} className="flex scroll-mb-28 flex-col gap-2 rounded-[14px] bg-cool px-4 py-[14px]">
           <div>
             <Chip tone={result.isCorrect ? 'primary' : 'error'}>

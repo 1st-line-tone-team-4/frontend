@@ -52,6 +52,9 @@ function toAnswers(set, conceptName) {
         pickedId: at?.answer.selected_option_ids?.[0],
         myText: at?.answer.text,
         isCorrect: Boolean(result?.is_correct),
+        // 백그라운드 채점이 아직 안 끝났거나 실패한 답
+        grading: at?.status === 'grading',
+        failed: at?.status === 'failed',
         explanation: [result?.feedback, result?.explanation].filter(Boolean).join(' '),
         page: result?.evidence[0]?.page_number,
       }
@@ -83,7 +86,8 @@ export default function QuizResultPage() {
   const advanced = params.get('kind') === 'advanced'
   const [openId, setOpenId] = useState(null)
 
-  const setQuery = useQuestionSet()
+  // 채점 중인 답이 남아 있으면 끝날 때까지 다시 받아요
+  const setQuery = useQuestionSet({ untilGraded: true })
   const today = useToday()
   const conceptName = (versionId) =>
     today.data?.tasks.flatMap((t) => t.concepts).find((c) => c.concept_version_id === versionId)
@@ -95,7 +99,9 @@ export default function QuizResultPage() {
       : []
   // 문제를 푼 다음 단계는 '설명하기' (계획: 문제 풀기 → 설명하기 → 복습하기)
   // 그래서 개념을 다시 볼 때도 문제를 또 만들지 않고 설명하기로 이어지게 해요 (?from=quiz)
-  const firstWrong = source.find((a) => !a.isCorrect && a.conceptVersionId)
+  const firstWrong = source.find(
+    (a) => !a.isCorrect && !a.grading && !a.failed && a.conceptVersionId,
+  )
   const studyLink = firstWrong
     ? `/study?concept=${firstWrong.conceptVersionId}&from=quiz`
     : '/study?from=quiz'
@@ -104,19 +110,23 @@ export default function QuizResultPage() {
     ordinal: a.ordinal ?? i + 1,
   }))
   const correct = answers.filter((a) => a.isCorrect).length
+  const gradingCount = answers.filter((a) => a.grading).length
+  const failedCount = answers.filter((a) => a.failed).length
   const byLevel = ['하', '중', '상'].map((lv) => {
     const xs = answers.filter((a) => a.level === lv)
+    // 정답률은 채점이 끝난 문제로만 계산해요
+    const done = xs.filter((a) => !a.grading && !a.failed)
     return {
       lv,
       total: xs.length,
-      rate: xs.length ? Math.round((xs.filter((a) => a.isCorrect).length / xs.length) * 100) : null,
+      rate: done.length ? Math.round((done.filter((a) => a.isCorrect).length / done.length) * 100) : null,
     }
   })
 
   // 틀린 개념을 틀린 횟수 순으로 · 상 난이도 오답은 강조
   const weakMap = new Map()
   answers
-    .filter((a) => !a.isCorrect)
+    .filter((a) => !a.isCorrect && !a.grading && !a.failed)
     .forEach((a) => {
       const w = weakMap.get(a.concept) ?? { name: a.concept, wrong: 0, hard: false, page: a.page }
       w.wrong += 1
@@ -139,9 +149,19 @@ export default function QuizResultPage() {
       className="gap-6"
     >
       <PageTitle
-        title={`${answers.length}문제 중 ${correct}문제 맞혔어요`}
+        title={
+          gradingCount
+            ? `채점하고 있어요 · ${answers.length - gradingCount}/${answers.length}`
+            : `${answers.length}문제 중 ${correct}문제 맞혔어요`
+        }
         desc={
-          weak.length ? '틀린 개념을 AI 학생에게 설명하며 빈틈을 채워요.' : '틀린 문제가 없어요!'
+          gradingCount
+            ? '푼 문제를 AI가 한꺼번에 채점하고 있어요. 끝나면 결과가 바로 바뀌어요.'
+            : failedCount
+              ? `${failedCount}문제는 채점에 실패했어요. 문제를 다시 풀어 주세요.`
+              : weak.length
+                ? '틀린 개념을 AI 학생에게 설명하며 빈틈을 채워요.'
+                : '틀린 문제가 없어요!'
         }
       />
 
@@ -159,7 +179,11 @@ export default function QuizResultPage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-bold tracking-[-0.16px]">설명할 약점</h2>
-        {weak.length === 0 ? (
+        {weak.length === 0 && gradingCount ? (
+          <p className="rounded-2xl bg-cool px-4 py-[14px] text-sm leading-[1.55] text-sub">
+            채점이 끝나면 틀린 개념을 모아 보여드려요.
+          </p>
+        ) : weak.length === 0 ? (
           <p className="rounded-2xl bg-primary-soft px-4 py-[14px] text-sm leading-[1.55] text-primary">
             틀린 문제가 없어요. 민지는 상 난이도 개념을 중심으로 질문할 거예요.
           </p>
@@ -204,9 +228,9 @@ export default function QuizResultPage() {
                   className="flex w-full items-center gap-3 py-3 text-left"
                 >
                   <span
-                    className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${a.isCorrect ? 'bg-primary-soft text-primary' : 'bg-error-soft text-error'}`}
+                    className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${a.grading || a.failed ? 'bg-cool text-muted' : a.isCorrect ? 'bg-primary-soft text-primary' : 'bg-error-soft text-error'}`}
                   >
-                    {a.isCorrect ? 'O' : 'X'}
+                    {a.grading ? '…' : a.failed ? '!' : a.isCorrect ? 'O' : 'X'}
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-sm font-bold">
@@ -214,7 +238,10 @@ export default function QuizResultPage() {
                     </span>
                     <span className="text-xs text-sub">
                       {a.concept} · 난이도 {a.level}
-                      {picked >= 0 && ` · 내 답 ${marks[picked]} · 정답 ${marks[right]}`}
+                      {a.grading && ' · 채점 중'}
+                      {a.failed && ' · 채점 실패'}
+                      {picked >= 0 && right >= 0 && ` · 내 답 ${marks[picked]} · 정답 ${marks[right]}`}
+                      {picked >= 0 && right < 0 && ` · 내 답 ${marks[picked]}`}
                       {picked < 0 && (a.myText ? ` · 내 답 ${a.myText}` : ' · 풀지 않음')}
                     </span>
                   </span>
@@ -223,7 +250,7 @@ export default function QuizResultPage() {
                     className={`text-muted transition ${open ? 'rotate-180' : ''}`}
                   />
                 </button>
-                {open && (
+                {open && !a.grading && !a.failed && (
                   <div className="mb-3 flex flex-col gap-2 rounded-xl bg-cool px-4 py-3">
                     <p className="text-[13px] leading-[1.6]">
                       정답은{' '}
